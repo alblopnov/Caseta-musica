@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin - Gestión de Cola</title>
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+</head>
+<body>
+  <section class="section">
+    <div class="container">
+      <h1 class="title has-text-centered">Admin - Gestión de Cola</h1>
+      <div class="columns">
+        <div class="column is-half">
+          <div id="categories" class="buttons has-addons mb-4"></div>
+          <div class="field">
+            <label class="label">Buscar canción</label>
+            <div class="control">
+              <input id="search" class="input" type="text" placeholder="Filtrar lista...">
+            </div>
+          </div>
+          <nav class="pagination" aria-label="Paginación canciones">
+            <button id="prev-page" class="button" disabled>Anterior</button>
+            <button id="next-page" class="button" disabled>Siguiente</button>
+            <span id="page-info" class="ml-4"></span>
+          </nav>
+          <div id="song-list" class="box">
+            <table class="table is-fullwidth is-striped">
+              <thead>
+                <tr><th>Canción</th><th></th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="column is-half">
+          <h2 class="subtitle">Cola de reproducción</h2>
+          <div id="queue" class="box">
+            <table class="table is-fullwidth">
+              <thead><tr><th>Cola</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <p class="has-text-right"><a href="/">Volver a Usuario</a></p>
+    </div>
+  </section>
+  <script src="/static/admin.js"></script>
+</body>
+</html>
