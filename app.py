@@ -1,14 +1,12 @@
 import os
 import threading
 import queue
-import subprocess
 import time
 
 from flask import Flask, jsonify, request, render_template
 from flask_cors import CORS
 import pygame
 
-# Inicializa el mixer de pygame para audio
 pygame.mixer.init()
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
@@ -32,6 +30,7 @@ def player_worker():
 
         with queue_lock:
             current_song = song
+
         try:
             pygame.mixer.music.load(path)
             pygame.mixer.music.play()
@@ -39,24 +38,21 @@ def player_worker():
                 time.sleep(0.5)
         except Exception as e:
             print(f"[ERROR PLAYBACK] {e}")
+
         with queue_lock:
             current_song = None
         play_queue.task_done()
 
-# Arranca el hilo de reproducción
 threading.Thread(target=player_worker, daemon=True).start()
 
-# Vista Usuario
 @app.route('/')
 def index():
     return render_template('index.html')
 
-# Vista Admin oculta en /home/albertito
 @app.route('/albertitoeselmejor')
 def admin_view():
     return render_template('admin.html')
 
-# API: listar canciones recursivamente
 @app.route('/api/songs', methods=['GET'])
 def get_songs():
     song_list = []
@@ -68,7 +64,6 @@ def get_songs():
                 song_list.append(rel_path)
     return jsonify(song_list)
 
-# API: estado de la cola
 @app.route('/api/queue', methods=['GET'])
 def get_queue():
     with queue_lock:
@@ -78,20 +73,39 @@ def get_queue():
         cola.extend(list(play_queue.queue))
     return jsonify(cola)
 
-# API: añadir canción
 @app.route('/api/queue', methods=['POST'])
 def add_to_queue():
-    song = request.get_json().get('song')
+    data = request.get_json()
+    song = data.get('song')
+    pos = data.get('position')
     path = os.path.join(SONG_FOLDER, song or '')
     if not song or not os.path.isfile(path):
         return jsonify({'error': 'Canción no encontrada'}), 404
+
     play_queue.put(song)
+
+    if pos is not None:
+        try:
+            pos_int = int(pos)
+        except ValueError:
+            return jsonify({'error': 'Posición inválida'}), 400
+
+        with play_queue.mutex:
+            q = play_queue.queue
+            last = q.pop()  # recién añadido
+            idx = pos_int - 2
+            if idx < 0:
+                idx = 0
+            if idx > len(q):
+                idx = len(q)
+            q.insert(idx, last)
+
     return jsonify({'status': 'ok'}), 201
 
-# API: eliminar canción (solo admin)
 @app.route('/api/queue', methods=['DELETE'])
 def remove_from_queue():
-    song = request.get_json().get('song')
+    data = request.get_json()
+    song = data.get('song')
     if not song:
         return jsonify({'error': 'No song specified'}), 400
 
@@ -103,7 +117,6 @@ def remove_from_queue():
         except ValueError:
             pass
 
-    # Si estaba sonando, deténla
     global current_song
     with queue_lock:
         if not removed and current_song == song:
@@ -114,6 +127,35 @@ def remove_from_queue():
     if not removed:
         return jsonify({'error': 'Song not in queue'}), 404
     return jsonify({'status': 'removed'}), 200
+
+@app.route('/api/queue/move', methods=['POST'])
+def move_in_queue():
+    data = request.get_json()
+    song = data.get('song')
+    pos = data.get('position')
+    if not song or pos is None:
+        return jsonify({'error': 'Faltan datos'}), 400
+
+    try:
+        pos_int = int(pos)
+    except ValueError:
+        return jsonify({'error': 'Posición inválida'}), 400
+
+    with play_queue.mutex:
+        q = play_queue.queue
+        try:
+            q.remove(song)
+        except ValueError:
+            return jsonify({'error': 'Canción no está en la cola'}), 404
+
+        idx = pos_int - 2
+        if idx < 0:
+            idx = 0
+        if idx > len(q):
+            idx = len(q)
+        q.insert(idx, song)
+
+    return jsonify({'status': 'moved'}), 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)

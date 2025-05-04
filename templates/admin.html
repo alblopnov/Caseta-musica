@@ -3,14 +3,46 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Admin - Gestión de Cola</title>
+  <title>Admin - Los Bala Perdia 🎡</title>
   <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Lobster&family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    html { overflow-x: hidden; }
+    body {
+      font-family: 'Roboto', sans-serif;
+      background: #fdf2e9;
+      overflow-y: auto;
+      position: relative;
+    }
+    .circle {
+      position: absolute;
+      background: rgba(255,0,0,0.1);
+      border-radius: 50%;
+      z-index: 0;
+    }
+    .circle1 { width: 300px; height: 300px; top: -100px; left: -100px; }
+    .circle2 { width: 200px; height: 200px; top: 150px; right: -80px; }
+    .circle3 { width: 400px; height: 400px; bottom: -150px; left: 50%; transform: translateX(-50%); }
+    .header-title {
+      position: relative;
+      z-index: 1;
+      font-family: 'Lobster', cursive;
+      color: #b22222;
+      text-shadow: 2px 2px #fff;
+    }
+  </style>
 </head>
 <body>
+  <div class="circle circle1"></div>
+  <div class="circle circle2"></div>
+  <div class="circle circle3"></div>
+
   <section class="section">
     <div class="container">
-      <h1 class="title has-text-centered">Admin - Gestión de Cola</h1>
+      <h1 class="title has-text-centered header-title">
+        🏮 Admin – Los Bala Perdia 🔴
+      </h1>
       <div class="columns">
         <div class="column is-half">
           <div id="categories" class="buttons has-addons mb-4"></div>
@@ -20,31 +52,31 @@
               <input id="search" class="input" type="text" placeholder="Filtrar lista...">
             </div>
           </div>
-          <nav class="pagination" aria-label="Paginación canciones">
+          <nav class="pagination mb-2" aria-label="Paginación canciones">
             <button id="prev-page" class="button" disabled>Anterior</button>
             <button id="next-page" class="button" disabled>Siguiente</button>
             <span id="page-info" class="ml-4"></span>
           </nav>
           <div id="song-list" class="box">
             <table class="table is-fullwidth is-striped">
-              <thead>
-                <tr><th>Canción</th><th></th></tr>
-              </thead>
+              <thead><tr><th>Canción</th><th></th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
         </div>
         <div class="column is-half">
-          <h2 class="subtitle">Cola de reproducción</h2>
+          <h2 class="subtitle header-title">🎶 Cola de reproducción</h2>
           <div id="queue" class="box">
             <table class="table is-fullwidth">
-              <thead><tr><th>Cola</th><th></th></tr></thead>
+              <thead><tr><th>Canción</th><th></th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
         </div>
       </div>
-      <p class="has-text-right"><a href="/">Volver a Usuario</a></p>
+      <p class="has-text-right">
+        <a href="/" class="button is-light">Volver a Usuario</a>
+      </p>
     </div>
   </section>
   <script src="/static/admin.js"></script>
