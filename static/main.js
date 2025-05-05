@@ -96,6 +96,11 @@ async function renderQueue() {
     tr.innerHTML = `<td>${name}</td>`;
     tbody.appendChild(tr);
   });
+
+  // Solo conteo de canciones
+  const count = q.length;
+  const texto = `${count} canción${count !== 1 ? 'es' : ''} en la cola`;
+  document.getElementById('queue-info').textContent = texto;
 }
 
 // Event listeners
@@ -112,7 +117,7 @@ document.getElementById('next-page').addEventListener('click', () => {
   renderSongs();
 });
 
-// --- Lógica de subida ---
+// Lógica de subida
 document.getElementById('upload-btn').onclick = async () => {
   const input = document.getElementById('upload-input');
   if (!input.files.length) {
@@ -126,7 +131,6 @@ document.getElementById('upload-btn').onclick = async () => {
     await axios.post(`${API}/api/upload`, form, {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
-    // refrezcar lista de canciones y seleccionar la categoría recién subida
     allSongs = await fetchSongs();
     selectedCategory = 'reggaeton';
     currentPage = 1;
