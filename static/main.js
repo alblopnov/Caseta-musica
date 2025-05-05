@@ -56,7 +56,6 @@ function updatePagination(filtered) {
 }
 
 function renderSongs() {
-  // repinta categorías para actualizar estilos
   renderCategories();
 
   const term = document.getElementById('search').value.toLowerCase();
@@ -112,6 +111,33 @@ document.getElementById('next-page').addEventListener('click', () => {
   currentPage++;
   renderSongs();
 });
+
+// --- Lógica de subida ---
+document.getElementById('upload-btn').onclick = async () => {
+  const input = document.getElementById('upload-input');
+  if (!input.files.length) {
+    return alert('Selecciona un archivo .mp3 o .wav');
+  }
+  const file = input.files[0];
+  const form = new FormData();
+  form.append('song', file);
+
+  try {
+    await axios.post(`${API}/api/upload`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    // refrezcar lista de canciones y seleccionar la categoría recién subida
+    allSongs = await fetchSongs();
+    selectedCategory = 'reggaeton';
+    currentPage = 1;
+    renderSongs();
+    input.value = '';
+    alert('¡Canción subida y guardada en Reggaeton!');
+  } catch (err) {
+    console.error(err);
+    alert(err.response?.data?.error || 'Error al subir la canción');
+  }
+};
 
 // Inicialización
 (async () => {

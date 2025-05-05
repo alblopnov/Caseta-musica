@@ -5,6 +5,7 @@ import time
 
 from flask import Flask, jsonify, request, render_template
 from flask_cors import CORS
+from werkzeug.utils import secure_filename
 import pygame
 
 pygame.mixer.init()
@@ -13,9 +14,16 @@ app = Flask(__name__, template_folder='templates', static_folder='static')
 CORS(app)
 
 SONG_FOLDER = os.path.join(os.getcwd(), 'songs')
+UPLOAD_FOLDER = os.path.join(SONG_FOLDER, 'reggaeton')
+ALLOWED_EXTENSIONS = {'mp3', 'wav'}
+
 play_queue = queue.Queue()
 current_song = None
 queue_lock = threading.Lock()
+
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def player_worker():
     global current_song
@@ -63,6 +71,23 @@ def get_songs():
                 rel_path = os.path.relpath(full_path, SONG_FOLDER).replace('\\', '/')
                 song_list.append(rel_path)
     return jsonify(song_list)
+
+@app.route('/api/upload', methods=['POST'])
+def upload_song():
+    # espera multipart/form-data con campo 'song'
+    if 'song' not in request.files:
+        return jsonify({'error': 'No se ha enviado ningún fichero'}), 400
+    file = request.files['song']
+    if file.filename == '':
+        return jsonify({'error': 'Nombre de fichero vacío'}), 400
+    if file and allowed_file(file.filename):
+        filename = secure_filename(file.filename)
+        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+        dest = os.path.join(UPLOAD_FOLDER, filename)
+        file.save(dest)
+        return jsonify({'status': 'ok'}), 201
+    else:
+        return jsonify({'error': 'Tipo de archivo no permitido'}), 400
 
 @app.route('/api/queue', methods=['GET'])
 def get_queue():

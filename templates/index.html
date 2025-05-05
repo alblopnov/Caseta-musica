@@ -8,12 +8,15 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
   <link href="https://fonts.googleapis.com/css2?family=Lobster&family=Roboto:wght@400;700&display=swap" rel="stylesheet">
   <style>
-    html { overflow-x: hidden; }
+    /* Unificamos el scroll y ocultamos el overflow horizontal */
+    html {
+      overflow-x: hidden;
+      overflow-y: auto;
+    }
     body {
       font-family: 'Roboto', sans-serif;
       background: #fdf2e9;
-      overflow-y: auto;
-      position: relative;
+      /* Eliminados overflow-y y position para evitar scrollbars dobles */
     }
     .circle {
       position: absolute;
@@ -45,6 +48,16 @@
       </h1>
       <div class="columns">
         <div class="column is-half">
+
+          <!-- Formulario de subida de canción -->
+          <div class="field">
+            <label class="label">Subir tu canción (Reggaeton)</label>
+            <div class="control is-flex">
+              <input id="upload-input" class="input" type="file" accept=".mp3,.wav">
+              <button id="upload-btn" class="button is-link ml-2">Subir</button>
+            </div>
+          </div>
+
           <div id="categories" class="buttons has-addons mb-4"></div>
           <div class="field">
             <label class="label">Buscar canción</label>
