@@ -8,7 +8,6 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
   <link href="https://fonts.googleapis.com/css2?family=Lobster&family=Roboto:wght@400;700&display=swap" rel="stylesheet">
   <style>
-    /* Unificamos el scroll y ocultamos el overflow horizontal */
     html {
       overflow-x: hidden;
       overflow-y: auto;
@@ -16,7 +15,6 @@
     body {
       font-family: 'Roboto', sans-serif;
       background: #fdf2e9;
-      /* Eliminados overflow-y y position para evitar scrollbars dobles */
     }
     .circle {
       position: absolute;
@@ -75,6 +73,8 @@
               <tbody></tbody>
             </table>
           </div>
+          <!-- Aquí se mostrará el resumen -->
+          <p id="queue-info" class="has-text-centered mt-2"></p>
         </div>
       </div>
       <p class="has-text-right">

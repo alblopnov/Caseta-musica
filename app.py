@@ -2,6 +2,7 @@ import os
 import threading
 import queue
 import time
+import wave
 
 from flask import Flask, jsonify, request, render_template
 from flask_cors import CORS
@@ -74,7 +75,6 @@ def get_songs():
 
 @app.route('/api/upload', methods=['POST'])
 def upload_song():
-    # espera multipart/form-data con campo 'song'
     if 'song' not in request.files:
         return jsonify({'error': 'No se ha enviado ningún fichero'}), 400
     file = request.files['song']
@@ -98,6 +98,35 @@ def get_queue():
         cola.extend(list(play_queue.queue))
     return jsonify(cola)
 
+@app.route('/api/queue/duration', methods=['GET'])
+def get_queue_duration():
+    # Recoge la misma lista que get_queue()
+    with queue_lock:
+        cola = []
+        if current_song:
+            cola.append(current_song)
+        cola.extend(list(play_queue.queue))
+
+    total_seconds = 0.0
+    for song in cola:
+        path = os.path.join(SONG_FOLDER, song)
+        try:
+            if song.lower().endswith('.wav'):
+                # duración exacta con wave
+                with wave.open(path, 'rb') as wf:
+                    frames = wf.getnframes()
+                    rate = wf.getframerate()
+                    total_seconds += frames / rate
+            elif song.lower().endswith('.mp3'):
+                # estimación a 192 kbps -> 192000 bits/s = 24000 bytes/s
+                size = os.path.getsize(path)
+                total_seconds += size / 24000.0
+        except Exception:
+            # si falla en algún fichero, lo ignoramos
+            pass
+
+    return jsonify({'total_duration': total_seconds})
+
 @app.route('/api/queue', methods=['POST'])
 def add_to_queue():
     data = request.get_json()
@@ -117,7 +146,7 @@ def add_to_queue():
 
         with play_queue.mutex:
             q = play_queue.queue
-            last = q.pop()  # recién añadido
+            last = q.pop()
             idx = pos_int - 2
             if idx < 0:
                 idx = 0

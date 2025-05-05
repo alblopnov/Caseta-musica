@@ -7,6 +7,7 @@ let categories = ['Todas'];
 let draggedSong = null;
 let dropTarget = null;
 
+// Obtener canciones y categorías
 async function fetchSongs() {
   const data = (await axios.get(`${API}/api/songs`)).data;
   categories = ['Todas'];
@@ -17,8 +18,15 @@ async function fetchSongs() {
   return data;
 }
 
+// Obtener cola
 async function fetchQueue() {
   return (await axios.get(`${API}/api/queue`)).data;
+}
+
+// Obtener duración total estimada
+async function fetchQueueDuration() {
+  const res = await axios.get(`${API}/api/queue/duration`);
+  return res.data.total_duration;
 }
 
 function stripExt(n) {
@@ -122,7 +130,7 @@ async function renderQueue() {
   const q = await fetchQueue();
   const tb = document.querySelector('#queue tbody');
   tb.innerHTML = '';
-  q.forEach((song, idx) => {
+  q.forEach(song => {
     const tr = document.createElement('tr');
     tr.dataset.song = song;
     tr.innerHTML = `
@@ -141,6 +149,21 @@ async function renderQueue() {
     tb.appendChild(tr);
   });
   setupDragDrop();
+
+  // Contador y duración
+  const count = q.length;
+  const total = await fetchQueueDuration();
+  let text = `${count} canción${count !== 1 ? 'es' : ''} en la cola`;
+  if (total < 3600) {
+    const mins = Math.round(total / 60);
+    text += ` | Duración aprox.: ${mins} minuto${mins !== 1 ? 's' : ''}`;
+  } else {
+    const hrs = Math.floor(total / 3600);
+    const mins = Math.round((total % 3600) / 60);
+    text += ` | Duración aprox.: ${hrs} hora${hrs !== 1 ? 's' : ''}` +
+            (mins > 0 ? ` y ${mins} minuto${mins !== 1 ? 's' : ''}` : '');
+  }
+  document.getElementById('queue-info').textContent = text;
 }
 
 function renderAll() {

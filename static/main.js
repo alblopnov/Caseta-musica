@@ -21,6 +21,10 @@ async function fetchQueue() {
   return (await axios.get(`${API}/api/queue`)).data;
 }
 
+async function fetchQueueDuration() {
+  return (await axios.get(`${API}/api/queue/duration`)).data.total_duration;
+}
+
 function stripExtension(filename) {
   return filename.replace(/\.[^/.]+$/, '');
 }
@@ -87,6 +91,7 @@ function renderSongs() {
 }
 
 async function renderQueue() {
+  // 1) obtenemos la lista
   const q = await fetchQueue();
   const tbody = document.querySelector('#queue table tbody');
   tbody.innerHTML = '';
@@ -97,10 +102,24 @@ async function renderQueue() {
     tbody.appendChild(tr);
   });
 
-  // Solo conteo de canciones
+  // 2) obtenemos la duración total aproximada
+  const total = await fetchQueueDuration();
+
+  // 3) mostramos conteo y tiempo
   const count = q.length;
-  const texto = `${count} canción${count !== 1 ? 'es' : ''} en la cola`;
-  document.getElementById('queue-info').textContent = texto;
+  let text = `${count} canción${count !== 1 ? 'es' : ''} en la cola`;
+
+  if (total < 3600) {
+    const mins = Math.round(total / 60);
+    text += ` | Duración aprox.: ${mins} minuto${mins !== 1 ? 's' : ''}`;
+  } else {
+    const hrs = Math.floor(total / 3600);
+    const mins = Math.round((total % 3600) / 60);
+    text += ` | Duración aprox.: ${hrs} hora${hrs !== 1 ? 's' : ''}` +
+            (mins > 0 ? ` y ${mins} minuto${mins !== 1 ? 's' : ''}` : '');
+  }
+
+  document.getElementById('queue-info').textContent = text;
 }
 
 // Event listeners
