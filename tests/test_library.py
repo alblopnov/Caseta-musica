@@ -147,3 +147,60 @@ def test_from_env_song_dir_and_blank_pin():
     c = Config.from_env({"CASETA_SONG_DIR": "/music", "CASETA_ADMIN_PIN": ""})
     assert str(c.song_folder).replace("\\", "/") == "/music"
     assert c.admin_pin is None
+
+
+class _BrokenStream:
+    def __init__(self):
+        self.sent = False
+
+    def read(self, size=-1):
+        if not self.sent:
+            self.sent = True
+            return b"partial data"
+        raise ConnectionError("client disconnected")
+
+
+def test_upload_failed_copy_leaves_no_partial_file(library, config):
+    broken = FileStorage(stream=_BrokenStream(), filename="a.mp3")
+    with pytest.raises(ConnectionError):
+        library.save_upload(broken)
+    assert library.list_songs() == []
+    assert list((config.song_folder / "Subidas").iterdir()) == []
+
+
+def test_upload_overlong_name_is_truncated_not_an_error(library, config):
+    rel = library.save_upload(upload("a" * 300 + ".mp3"))
+    name = rel.split("/")[-1]
+    assert name.endswith(".mp3") and len(name) - len(".mp3") <= 100
+    assert (config.song_folder / rel).is_file()
+
+
+def test_filesystem_error_on_upload_becomes_invalid_upload(library, monkeypatch):
+    import builtins
+    real_open = builtins.open
+
+    def failing_open(path, mode="r", *a, **k):
+        if "x" in mode:
+            raise OSError("name too long")
+        return real_open(path, mode, *a, **k)
+
+    monkeypatch.setattr(builtins, "open", failing_open)
+    with pytest.raises(InvalidUpload):
+        library.save_upload(upload("a.mp3"))
+
+
+def test_config_repr_hides_pin_and_secret():
+    c = Config(admin_pin="9999", secret_key="s3cr3t-key-value")
+    assert "9999" not in repr(c)
+    assert "s3cr3t-key-value" not in repr(c)
+
+
+def test_resolve_symlink_loop_runtime_error_is_not_found(library, config, monkeypatch):
+    make_wav(config.song_folder / "a.wav", 1)
+
+    def loop(self, strict=False):
+        raise RuntimeError("Symlink loop from 'x'")
+
+    monkeypatch.setattr("pathlib.Path.resolve", loop)
+    with pytest.raises(SongNotFound):
+        library.resolve("a.wav")

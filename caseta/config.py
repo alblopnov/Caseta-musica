@@ -15,8 +15,8 @@ class Config:
     allowed_extensions: frozenset[str] = frozenset({"mp3", "wav", "ogg"})
     max_upload_bytes: int = 30 * 1024 * 1024
     max_pending_per_user: int = 5
-    admin_pin: str | None = None
-    secret_key: str = field(default_factory=lambda: secrets.token_hex(32))
+    admin_pin: str | None = field(default=None, repr=False)
+    secret_key: str = field(default_factory=lambda: secrets.token_hex(32), repr=False)
     portal_url: str = "http://10.42.0.1/"
     allowed_hosts: frozenset[str] = frozenset({"10.42.0.1", "caseta.local", "localhost", "127.0.0.1"})
 

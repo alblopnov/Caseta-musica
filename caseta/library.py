@@ -11,6 +11,7 @@ from werkzeug.utils import secure_filename
 from caseta.config import Config
 
 FALLBACK_DURATION = 180.0
+MAX_STEM_LENGTH = 100
 
 
 class SongNotFound(Exception):
@@ -49,11 +50,11 @@ class Library:
     def resolve(self, song: str) -> Path:
         if not isinstance(song, str) or not song:
             raise SongNotFound(song)
-        root = self._root
         try:
+            root = self._root
             path = (root / song).resolve()
             ok = path.is_relative_to(root) and self._allowed(path.name) and path.is_file()
-        except (OSError, ValueError):  # e.g. embedded NUL, invalid characters
+        except (OSError, ValueError, RuntimeError):  # NUL byte, bad chars, symlink loop (3.11)
             raise SongNotFound(song) from None
         if not ok:
             raise SongNotFound(song)
@@ -66,19 +67,29 @@ class Library:
         ext = ext.lower()
         if not dot or ext not in self._config.allowed_extensions:
             raise InvalidUpload(file.filename)
-        stem = secure_filename(stem) or f"cancion-{secrets.token_hex(4)}"
+        stem = secure_filename(stem)[:MAX_STEM_LENGTH].strip("._") or f"cancion-{secrets.token_hex(4)}"
 
-        folder = self._root / self._config.upload_category
-        folder.mkdir(parents=True, exist_ok=True)
-        n = 0
-        while True:
-            name = f"{stem}.{ext}" if n == 0 else f"{stem}-{n}.{ext}"
-            try:
-                with open(folder / name, "xb") as out:  # exclusive: never overwrite
-                    shutil.copyfileobj(file.stream, out)
+        try:
+            folder = self._root / self._config.upload_category
+            folder.mkdir(parents=True, exist_ok=True)
+            n = 0
+            while True:
+                name = f"{stem}.{ext}" if n == 0 else f"{stem}-{n}.{ext}"
+                target = folder / name
+                try:
+                    out = open(target, "xb")  # exclusive: never overwrite
+                except FileExistsError:
+                    n += 1
+                    continue
                 break
-            except FileExistsError:
-                n += 1
+        except OSError as e:
+            raise InvalidUpload(file.filename) from e
+        try:
+            with out:
+                shutil.copyfileobj(file.stream, out)
+        except BaseException:
+            target.unlink(missing_ok=True)  # never leave a truncated song behind
+            raise
         return f"{self._config.upload_category}/{name}"
 
     def duration(self, song: str) -> float:
