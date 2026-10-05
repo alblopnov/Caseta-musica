@@ -101,6 +101,18 @@ def test_fairness_end_to_end(engine, player, add):
     assert [p.name for p in played] == ["a1.wav", "b1.wav", "a2.wav", "a3.wav"]
 
 
+def test_readding_while_own_song_plays_does_not_cut_ahead(engine, player, add):
+    for s in ("a1.wav", "a2.wav", "a3.wav"):
+        add(s, "A")
+    add("b1.wav", "B")
+    engine.tick()  # a1
+    player.finish()
+    engine.tick()  # b1 starts; B queues another song right away
+    add("d.wav", "B")
+    played = drain(engine, player)
+    assert [p.name for p in played] == ["a1.wav", "b1.wav", "a2.wav", "d.wav", "a3.wav"]
+
+
 def test_eta_uses_remaining_time_of_current_song(engine, player, add, clock):
     add("a.wav", "A")
     add("b.wav", "B")
