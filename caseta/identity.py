@@ -42,7 +42,12 @@ def init_identity(app: Flask) -> None:
         return response
 
 
-AttemptResult = Literal["ok", "bad", "locked", "disabled"]
+def _encode(pin: str) -> bytes:
+    # surrogatepass: a lone surrogate (e.g. from JSON "\ud800") must not raise.
+    return pin.encode("utf-8", errors="surrogatepass")
+
+
+AttemptResult =Literal["ok", "bad", "locked", "disabled"]
 
 
 class AdminAuth:
@@ -55,7 +60,7 @@ class AdminAuth:
         lockout_seconds: float = 60,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        self._pin = pin.encode("utf-8") if pin else None
+        self._pin = _encode(pin) if pin else None
         self._max_failures = max_failures
         self._lockout_seconds = lockout_seconds
         self._clock = clock
@@ -79,7 +84,7 @@ class AdminAuth:
                     return "locked"
                 del self._locked_until[key]
                 self._failures.pop(key, None)
-            if hmac.compare_digest(pin.encode("utf-8"), self._pin):
+            if isinstance(pin, str) and hmac.compare_digest(_encode(pin), self._pin):
                 self._failures.pop(key, None)
                 return "ok"
             failures = self._failures.get(key, 0) + 1

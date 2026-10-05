@@ -192,3 +192,37 @@ def test_admin_auth_lockout_is_per_key():
 def test_admin_auth_does_not_expose_pin():
     a = AdminAuth("s3cr3t-pin")
     assert "s3cr3t-pin" not in repr(a) and "s3cr3t-pin" not in str(a)
+
+
+def test_cookie_is_not_marked_secure(app_client):
+    r = app_client.get("/_whoami")
+    header = next(h for h in _set_cookie_headers(r) if h.startswith("caseta_client="))
+    assert "Secure" not in header
+
+
+def test_admin_auth_lone_surrogate_pin_is_bad_not_error():
+    a = AdminAuth("1234")
+    assert a.attempt("\ud800", "ip") == "bad"
+
+
+@pytest.mark.parametrize("junk", [None, 1234, 12.5, True, ["1234"], {"pin": "1234"}, b"1234"])
+def test_admin_auth_non_str_pin_is_bad_not_error(junk):
+    a = AdminAuth("1234")
+    assert a.attempt(junk, "ip") == "bad"
+
+
+@pytest.mark.parametrize("junk", ["\ud800", None, 1234])
+def test_admin_auth_junk_pins_count_toward_lockout(junk):
+    a = AdminAuth("1234", max_failures=3)
+    for _ in range(3):
+        assert a.attempt(junk, "ip") == "bad"
+    assert a.attempt("1234", "ip") == "locked"
+    assert a.attempt(junk, "ip") == "locked"
+
+
+def test_admin_auth_disabled_and_locked_take_precedence_over_junk_pin():
+    assert AdminAuth(None).attempt(None, "ip") == "disabled"
+    assert AdminAuth(None).attempt("\ud800", "ip") == "disabled"
+    a = AdminAuth("1234", max_failures=1)
+    a.attempt("x", "ip")
+    assert a.attempt(None, "ip") == "locked"
