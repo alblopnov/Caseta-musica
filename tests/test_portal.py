@@ -20,6 +20,29 @@ def test_known_hosts_are_served(app, host):
     assert app.test_client().get("/", headers={"Host": host}).status_code == 200
 
 
+@pytest.mark.parametrize(
+    "host",
+    ["192.168.1.50:5000", "192.168.1.50", "10.0.0.7:8080", "[::1]", "[::1]:5000", "[fe80::1]:5000", "[2001:db8::7]"],
+)
+def test_ip_literal_hosts_are_never_redirected(app, host):
+    """Phones on a home Wi-Fi reach the Pi by its LAN address; captive probes use names."""
+    r = app.test_client().get("/", headers={"Host": host})
+    assert r.status_code == 200
+    assert app.test_client().get("/api/state", headers={"Host": host}).status_code == 200
+
+
+def test_extra_allowed_hosts_are_served(config, player):
+    import dataclasses
+
+    from caseta import create_app
+
+    config = dataclasses.replace(config, allowed_hosts=config.allowed_hosts | {"jukebox.lan"})
+    client = create_app(config, player=player, start_engine=False).test_client()
+    assert client.get("/", headers={"Host": "Jukebox.LAN:5000"}).status_code == 200
+    r = client.get("/", headers={"Host": "jukebox.lan.evil.com"})
+    assert r.status_code == 302 and r.headers["Location"] == "http://10.42.0.1/"
+
+
 @pytest.mark.parametrize("method", ["get", "post", "head", "put", "delete"])
 @pytest.mark.parametrize("path", ["/", "/api/state", "/api/queue", "/generate_204", "/static/x.js"])
 def test_any_path_and_method_from_unknown_host_redirects(app, method, path):
@@ -36,7 +59,25 @@ def test_api_state_from_unknown_host_never_leaks_state(app):
 
 @pytest.mark.parametrize(
     "host",
-    ["[", "", pytest.param("x" * 5000, id="very-long"), "[::1]", "[::1]:5000", ":80", "a b", "caseta.local.evil.com"],
+    [
+        "[",
+        "",
+        pytest.param("x" * 5000, id="very-long"),
+        ":80",
+        "a b",
+        " ",
+        "caseta.local.evil.com",
+        "evil.com",
+        "connectivitycheck.gstatic.com",
+        "captive.apple.com",
+        "[::1",
+        "[not-an-ip]",
+        "::1",
+        "1.2.3",
+        "999.1.1.1",
+        "192.168.1.50.evil.com",
+        "10.42.0.1.nip.io",
+    ],
 )
 def test_weird_host_headers_redirect_without_error(app, host):
     r = app.test_client().get("/api/state", headers={"Host": host})
@@ -64,7 +105,7 @@ def entry(monkeypatch, tmp_path, player):
     import app as entry_module
     import caseta
 
-    for name in ("CASETA_ADMIN_PIN", "CASETA_PORT", "CASETA_MAX_PENDING", "CASETA_MAX_UPLOAD_MB"):
+    for name in ("CASETA_ADMIN_PIN", "CASETA_PORT", "CASETA_MAX_PENDING", "CASETA_MAX_UPLOAD_MB", "CASETA_ALLOWED_HOSTS"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("CASETA_SONG_DIR", str(tmp_path / "songs"))
 

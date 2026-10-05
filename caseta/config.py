@@ -28,7 +28,13 @@ class Config:
             max_upload_bytes=_positive_int(environ, "CASETA_MAX_UPLOAD_MB", 30) * 1024 * 1024,
             max_pending_per_user=_positive_int(environ, "CASETA_MAX_PENDING", defaults.max_pending_per_user),
             admin_pin=environ.get("CASETA_ADMIN_PIN") or None,
+            allowed_hosts=defaults.allowed_hosts | _host_list(environ.get("CASETA_ALLOWED_HOSTS", "")),
         )
+
+
+def _host_list(raw: str) -> frozenset[str]:
+    """Comma-separated host names, trimmed and lowercased; empty items ignored."""
+    return frozenset(h.strip().lower() for h in raw.split(",") if h.strip())
 
 
 def _positive_int(environ: Mapping[str, str], name: str, default: int) -> int:

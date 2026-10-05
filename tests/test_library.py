@@ -143,6 +143,17 @@ def test_from_env_defaults():
     assert c.secret_key
 
 
+def test_from_env_allowed_hosts_default():
+    assert Config.from_env({}).allowed_hosts == Config().allowed_hosts
+    assert Config.from_env({"CASETA_ALLOWED_HOSTS": " , "}).allowed_hosts == Config().allowed_hosts
+
+
+def test_from_env_extra_allowed_hosts_are_merged_trimmed_and_lowercased():
+    c = Config.from_env({"CASETA_ALLOWED_HOSTS": " Jukebox.LAN , ,mi-casa,, "})
+    assert c.allowed_hosts == Config().allowed_hosts | {"jukebox.lan", "mi-casa"}
+    assert "" not in c.allowed_hosts
+
+
 def test_from_env_song_dir_and_blank_pin():
     c = Config.from_env({"CASETA_SONG_DIR": "/music", "CASETA_ADMIN_PIN": ""})
     assert str(c.song_folder).replace("\\", "/") == "/music"
