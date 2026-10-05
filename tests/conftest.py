@@ -1,3 +1,4 @@
+import dataclasses
 import wave
 from pathlib import Path
 
@@ -28,3 +29,53 @@ def config(tmp_path):
 @pytest.fixture
 def library(config):
     return Library(config)
+
+
+SONG_NAMES = ["a1", "a2", "a3", "b1", *(f"s{i}" for i in range(6))]
+
+
+@pytest.fixture
+def songs(config):
+    for name in SONG_NAMES:
+        make_wav(config.song_folder / f"{name}.wav", 1)
+    return config.song_folder
+
+
+@pytest.fixture
+def player():
+    from tests.fakes import FakePlayer
+
+    return FakePlayer()
+
+
+@pytest.fixture
+def app(config, player):
+    from caseta import create_app
+
+    return create_app(config, player=player, start_engine=False)
+
+
+@pytest.fixture
+def phone_a(app):
+    return app.test_client()
+
+
+@pytest.fixture
+def phone_b(app):
+    return app.test_client()
+
+
+@pytest.fixture
+def app_without_pin_client(config, player):
+    from caseta import create_app
+
+    cfg = dataclasses.replace(config, admin_pin=None)
+    return create_app(cfg, player=player, start_engine=False).test_client()
+
+
+@pytest.fixture
+def app_small_limit_client(config, player):
+    from caseta import create_app
+
+    cfg = dataclasses.replace(config, max_upload_bytes=1024)
+    return create_app(cfg, player=player, start_engine=False).test_client()
