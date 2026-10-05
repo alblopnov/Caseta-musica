@@ -11,6 +11,7 @@ from caseta.fair_queue import FairQueue
 from caseta.identity import AdminAuth, init_identity
 from caseta.library import Library
 from caseta.player import Player
+from caseta.portal import init_portal
 
 _ROOT = Path(__file__).resolve().parent.parent
 
@@ -44,6 +45,7 @@ def create_app(
     app.extensions["engine"] = engine
     app.extensions["admin_auth"] = AdminAuth(config.admin_pin)
 
+    init_portal(app, config)  # before identity: redirected requests get no cookie
     init_identity(app)
     _register_domain_handlers(app)
     register_http_error_handlers(app)
