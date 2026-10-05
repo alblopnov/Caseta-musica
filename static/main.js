@@ -2,25 +2,13 @@
 // filtering, paging) live in userlogic.js. Every node is built with Common.el.
 (function () {
   var el = Common.el;
-  var SONGS_PER_PAGE = 20;
   var POLL_MS = 3000;
   var UPLOAD_CATEGORY = "Subidas";
 
-  var allSongs = [];
-  var songsLoaded = false;
-  var songsLoading = false;
-  var selectedCategory = "Todas";
-  var currentPage = 1;
   var lastState = null;
   var stateSeq = 0; // responses older than the last applied one are dropped
   var appliedSeq = 0;
 
-  var searchInput = document.getElementById("search");
-  var prevBtn = document.getElementById("prev-page");
-  var nextBtn = document.getElementById("next-page");
-  var pageInfo = document.getElementById("page-info");
-  var categoriesBox = document.getElementById("categories");
-  var songBody = document.querySelector("#song-list tbody");
   var queueBox = document.getElementById("queue");
   var bannerBox = document.getElementById("queue-banner");
   var counterBox = document.getElementById("queue-counter");
@@ -30,8 +18,14 @@
   var uploadBtn = document.getElementById("upload-btn");
   var uploadEnqueue = document.getElementById("upload-enqueue");
 
-  var songsSig = null; // last rendered song rows, to skip identical re-renders
   var queueSig = null;
+
+  // Library / add panel shared with the admin page (library.js).
+  var panel = LibraryPanel.create({
+    getState: function () { return lastState; },
+    refresh: function () { return safeRefresh(); },
+    onError: function (err) { handleActionError(err); },
+  });
 
   function replaceChildren(node, children) {
     while (node.firstChild) node.removeChild(node.firstChild);
@@ -40,100 +34,6 @@
 
   function setHidden(node, hidden) {
     node.classList.toggle("is-hidden", hidden);
-  }
-
-  // -- library ------------------------------------------------------------
-
-  function renderCategories(names) {
-    replaceChildren(
-      categoriesBox,
-      names.map(function (name) {
-        var kind = name === selectedCategory ? "is-primary" : name === "Todas" ? "is-white" : "is-light";
-        return el("button", {
-          class: "button " + kind,
-          type: "button",
-          onclick: function () {
-            selectedCategory = name;
-            currentPage = 1;
-            renderSongs(true);
-          },
-        }, name);
-      })
-    );
-  }
-
-  function addSong(song) {
-    Common.api("POST", "/api/queue", { song: song }).then(
-      function () { return safeRefresh(); },
-      function (err) {
-        handleActionError(err);
-        return safeRefresh();
-      }
-    );
-  }
-
-  function songRow(song) {
-    var inQueue = UserLogic.isInQueue(song, lastState);
-    var button = inQueue
-      ? el("button", { class: "button", type: "button", disabled: true }, "En la cola")
-      : el("button", {
-          class: "button is-primary",
-          type: "button",
-          onclick: function (ev) {
-            ev.currentTarget.disabled = true;
-            addSong(song);
-          },
-        }, "Añadir");
-    return el("tr", null,
-      el("td", { class: "is-vcentered" }, UserLogic.songTitle(song)),
-      el("td", { class: "has-text-right" }, button));
-  }
-
-  function renderSongs(force) {
-    var names = UserLogic.categories(allSongs);
-    if (names.indexOf(selectedCategory) === -1) selectedCategory = "Todas";
-    var filtered = UserLogic.filterSongs(allSongs, selectedCategory, searchInput.value);
-    var page = UserLogic.paginate(filtered, currentPage, SONGS_PER_PAGE);
-    currentPage = page.page;
-
-    // Polling re-renders every 3 s; skip when nothing visible changed so a
-    // tap in progress is never swallowed by a rebuilt button.
-    var sig = JSON.stringify([
-      names, selectedCategory, page.page, page.totalPages,
-      page.items.map(function (s) { return [s, UserLogic.songState(s, lastState)]; }),
-    ]);
-    if (!force && sig === songsSig) return;
-    songsSig = sig;
-
-    renderCategories(names);
-    prevBtn.disabled = page.page <= 1;
-    nextBtn.disabled = page.page >= page.totalPages;
-    pageInfo.textContent = "Página " + page.page + " de " + page.totalPages;
-    if (page.items.length === 0) {
-      replaceChildren(songBody, [
-        el("tr", null, el("td", { colspan: 2, class: "has-text-grey" },
-          allSongs.length === 0 ? "No hay canciones todavía." : "No hay canciones que coincidan.")),
-      ]);
-    } else {
-      replaceChildren(songBody, page.items.map(songRow));
-    }
-  }
-
-  function loadSongs() {
-    if (songsLoading) return Promise.resolve();
-    songsLoading = true;
-    return Common.api("GET", "/api/songs").then(
-      function (data) {
-        songsLoading = false;
-        allSongs = Array.isArray(data) ? data : [];
-        songsLoaded = true;
-        renderSongs(true);
-      },
-      function (err) {
-        songsLoading = false;
-        throw err; // polling retries while songsLoaded is false
-      }
-    );
   }
 
   // -- queue --------------------------------------------------------------
@@ -225,8 +125,8 @@
         appliedSeq = seq;
         lastState = state;
         renderQueue(state);
-        renderSongs(false);
-        if (!songsLoaded) loadSongs().catch(function () {});
+        panel.render(false);
+        if (!panel.isLoaded()) panel.load().catch(function () {});
       },
       function (err) {
         setOffline(true);
@@ -240,7 +140,7 @@
   }
 
   function handleActionError(err) {
-    songsSig = null; // rebuild the rows so disabled buttons come back
+    panel.invalidate(); // rebuild the rows so disabled buttons come back
     queueSig = null;
     if (err && err.status === 409) {
       Common.toast(UserLogic.conflictMessage(err, lastState), "danger");
@@ -253,10 +153,8 @@
 
   function finishUpload() {
     uploadInput.value = "";
-    searchInput.value = "";
-    selectedCategory = UPLOAD_CATEGORY;
-    currentPage = 1;
-    return Promise.all([loadSongs(), refreshState()]).catch(function () {});
+    panel.showCategory(UPLOAD_CATEGORY);
+    return Promise.all([panel.load(), refreshState()]).catch(function () {});
   }
 
   uploadBtn.onclick = function () {
@@ -286,21 +184,6 @@
     });
   };
 
-  // -- events ----------------------------------------------------------------
-
-  searchInput.addEventListener("input", function () {
-    currentPage = 1;
-    renderSongs(true);
-  });
-  prevBtn.addEventListener("click", function () {
-    currentPage--;
-    renderSongs(true);
-  });
-  nextBtn.addEventListener("click", function () {
-    currentPage++;
-    renderSongs(true);
-  });
-
-  loadSongs().catch(function () {}); // polling retries it if this fails
+  panel.load().catch(function () {}); // polling retries it if this fails
   Common.startPolling(refreshState, POLL_MS);
 })();

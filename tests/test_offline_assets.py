@@ -3,17 +3,25 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# Files that must never load anything from the network. Task 10 widens this to
-# every template once index.html / admin.html are rewritten.
-OFFLINE_FILES = [
-    "templates/base.html",
-    "templates/index.html",
-    "static/style.css",
-    "static/common.js",
-    "static/format.js",
-    "static/userlogic.js",
-    "static/main.js",
-]
+# Files that must never load anything from the network: every template plus
+# the project's own static scripts and styles (vendor/ is third-party bundles).
+OFFLINE_FILES = sorted(
+    [p.relative_to(ROOT).as_posix() for p in (ROOT / "templates").glob("*.html")]
+    + [
+        "static/style.css",
+        "static/common.js",
+        "static/format.js",
+        "static/userlogic.js",
+        "static/adminlogic.js",
+        "static/library.js",
+        "static/main.js",
+        "static/admin.js",
+    ]
+)
+
+
+def test_offline_files_cover_every_template():
+    assert {"templates/base.html", "templates/index.html", "templates/admin.html"} <= set(OFFLINE_FILES)
 
 REMOTE_REF = re.compile(r"(src|href|url\()\s*=?\s*[\"']?(https?:)?//", re.I)
 REMOTE_FETCH = re.compile(r"(fetch|import|XMLHttpRequest|open)\s*\(\s*[\"'`](https?:)?//", re.I)

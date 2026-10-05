@@ -1,87 +1,78 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Admin - Los Bala Perdia 🎡</title>
-  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
-  <link href="https://fonts.googleapis.com/css2?family=Lobster&family=Roboto:wght@400;700&display=swap" rel="stylesheet">
-  <style>
-    html {
-      overflow-x: hidden;
-      overflow-y: auto;
-    }
-    body {
-      font-family: 'Roboto', sans-serif;
-      background: #fdf2e9;
-    }
-    .circle {
-      position: absolute;
-      background: rgba(255,0,0,0.1);
-      border-radius: 50%;
-      z-index: 0;
-    }
-    .circle1 { width: 300px; height: 300px; top: -100px; left: -100px; }
-    .circle2 { width: 200px; height: 200px; top: 150px; right: -80px; }
-    .circle3 { width: 400px; height: 400px; bottom: -150px; left: 50%; transform: translateX(-50%); }
-    .header-title {
-      position: relative;
-      z-index: 1;
-      font-family: 'Lobster', cursive;
-      color: #b22222;
-      text-shadow: 2px 2px #fff;
-    }
-  </style>
-</head>
-<body>
-  <div class="circle circle1"></div>
-  <div class="circle circle2"></div>
-  <div class="circle circle3"></div>
+{% extends "base.html" %}
 
+{% block title %}Admin - Los Bala Perdia 🎡{% endblock %}
+
+{% block body %}
   <section class="section">
     <div class="container">
       <h1 class="title has-text-centered header-title">
         🏮 Admin – Los Bala Perdia 🔴
       </h1>
-      <div class="columns">
-        <div class="column is-half">
-          <div id="categories" class="buttons has-addons mb-4"></div>
-          <div class="field">
-            <label class="label">Buscar canción</label>
-            <div class="control">
-              <input id="search" class="input" type="text" placeholder="Filtrar lista...">
+
+      <div id="offline-notice" class="notification is-danger is-hidden" role="alert">
+        Sin conexión con la caseta
+      </div>
+
+      <!-- Formulario de PIN: lo único que se ve hasta entrar como administrador -->
+      <div id="login-section" class="columns is-centered is-hidden">
+        <div class="column is-one-third">
+          <form id="pin-form" class="box" autocomplete="off">
+            <div class="field">
+              <label class="label" for="pin-input">PIN de administrador</label>
+              <div class="control">
+                <input id="pin-input" class="input" type="password" inputmode="numeric" autocomplete="off" required>
+              </div>
+              <p id="pin-error" class="help is-danger" role="alert"></p>
             </div>
-          </div>
-          <nav class="pagination mb-2" aria-label="Paginación canciones">
-            <button id="prev-page" class="button" disabled>Anterior</button>
-            <button id="next-page" class="button" disabled>Siguiente</button>
-            <span id="page-info" class="ml-4"></span>
-          </nav>
-          <div id="song-list" class="box">
-            <table class="table is-fullwidth is-striped">
-              <thead><tr><th>Canción</th><th></th></tr></thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </div>
-        <div class="column is-half">
-          <h2 class="subtitle header-title">🎶 Cola de reproducción</h2>
-          <div id="queue" class="box">
-            <table class="table is-fullwidth">
-              <thead><tr><th>Canción</th><th></th></tr></thead>
-              <tbody></tbody>
-            </table>
-          </div>
-          <!-- Aquí se mostrará el resumen -->
-          <p id="queue-info" class="has-text-centered mt-2"></p>
+            <button id="pin-btn" class="button is-link is-fullwidth" type="submit">Entrar</button>
+          </form>
         </div>
       </div>
-      <p class="has-text-right">
-        <a href="/" class="button is-light">Volver a Usuario</a>
-      </p>
+
+      <div id="admin-section" class="is-hidden">
+        <div class="columns">
+          <div class="column is-half">
+            <div id="categories" class="buttons mb-4"></div>
+            <div class="field">
+              <label class="label" for="search">Buscar canción</label>
+              <div class="control">
+                <input id="search" class="input" type="search" placeholder="Filtrar lista..." autocomplete="off">
+              </div>
+            </div>
+            <nav class="pagination is-flex is-align-items-center mb-3" aria-label="Paginación canciones">
+              <button id="prev-page" class="button" type="button" disabled>Anterior</button>
+              <button id="next-page" class="button ml-2" type="button" disabled>Siguiente</button>
+              <span id="page-info" class="ml-4"></span>
+            </nav>
+            <div id="song-list" class="box">
+              <table class="table is-fullwidth is-striped">
+                <thead>
+                  <tr><th>Canción</th><th></th></tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="column is-half">
+            <h2 class="subtitle header-title">🎶 Cola de reproducción</h2>
+            <button id="skip-btn" class="button is-warning mb-3" type="button">Saltar canción</button>
+            <div id="queue" class="box"></div>
+            <!-- Resumen de la cola -->
+            <p id="queue-info" class="has-text-centered mt-2"></p>
+          </div>
+        </div>
+        <p class="has-text-right">
+          <a href="/" class="button is-light">Volver a Usuario</a>
+        </p>
+      </div>
     </div>
   </section>
-  <script src="/static/admin.js"></script>
-</body>
-</html>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{{ url_for('static', filename='userlogic.js') }}"></script>
+  <script src="{{ url_for('static', filename='adminlogic.js') }}"></script>
+  <script src="{{ url_for('static', filename='library.js') }}"></script>
+  <script src="{{ url_for('static', filename='admin.js') }}"></script>
+{% endblock %}

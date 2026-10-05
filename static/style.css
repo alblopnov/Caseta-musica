@@ -47,3 +47,24 @@ body {
   margin-bottom: 0.5rem;
   pointer-events: auto;
 }
+
+/* Admin queue: drag and drop reorder */
+.drag-handle {
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  font-size: 1.4rem;
+  line-height: 1;
+  padding: 0.5rem 0.6rem;
+  color: #7a7a7a;
+}
+.queue-row {
+  border-radius: 6px;
+}
+.queue-row.is-dragging {
+  opacity: 0.5;
+}
+.queue-row.is-drop-target {
+  background: rgba(178, 34, 34, 0.12);
+  outline: 2px dashed #b22222;
+}

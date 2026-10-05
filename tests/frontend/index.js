@@ -3,3 +3,4 @@
 require("./format.test.js");
 require("./common.test.js");
 require("./userlogic.test.js");
+require("./adminlogic.test.js");
