@@ -108,10 +108,45 @@ def test_login_with_weird_pin_values_is_401_not_500(phone_a, pin):
     assert post(phone_a, "/api/admin/login", {"pin": pin}).status_code == 401
 
 
-@pytest.mark.parametrize("body", [None, [1], "1234", {}])
-def test_login_with_malformed_body_is_400_or_401(phone_a, body):
+@pytest.mark.parametrize("body", [None, [1], "1234"])
+def test_login_with_non_object_body_is_400(phone_a, body):
     r = phone_a.post("/api/admin/login", data=json.dumps(body), content_type="application/json")
-    assert r.status_code in (400, 401) and "error" in r.json
+    assert (r.status_code, r.json["code"]) == (400, "bad_request")
+
+
+@pytest.mark.parametrize("body", [{}, {"other": "1234"}])
+def test_login_without_pin_is_401_bad_pin(phone_a, body):
+    r = post(phone_a, "/api/admin/login", body)
+    assert (r.status_code, r.json["code"]) == (401, "bad_pin")
+
+
+@pytest.mark.parametrize("url", ["/api/queue", "/api/admin/login"])
+def test_deeply_nested_json_is_400_not_500(phone_a, url):
+    body = "[" * 100000 + "]" * 100000
+    r = phone_a.post(url, data=body, content_type="application/json")
+    assert (r.status_code, r.json["code"]) == (400, "bad_request")
+
+
+def test_move_playing_item_is_404(app, phone_a, songs):
+    item = post(phone_a, "/api/queue", {"song": "a1.wav"}).json
+    app.extensions["engine"].tick()
+    login(phone_a)
+    r = post(phone_a, f"/api/queue/{item['id']}/move", {"position": 1})
+    assert (r.status_code, r.json["code"]) == (404, "not_found")
+
+
+def test_bare_api_path_is_json_404(phone_a):
+    r = phone_a.get("/api")
+    assert (r.status_code, r.json["code"]) == (404, "not_found")
+
+
+def test_other_http_errors_under_api_are_json(app, phone_a):
+    from werkzeug.exceptions import abort
+
+    app.add_url_rule("/api/teapot", "teapot", lambda: abort(418))
+    r = phone_a.get("/api/teapot")
+    assert r.status_code == 418
+    assert r.json["code"] == "i_m_a_teapot" and r.json["error"]
 
 
 def test_admin_disabled_without_pin(app_without_pin_client):

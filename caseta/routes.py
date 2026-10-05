@@ -1,6 +1,8 @@
 """HTTP API for the fair shared queue. Every API error is ``{"error", "code"}`` JSON."""
 from __future__ import annotations
 
+import re
+
 from flask import Blueprint, current_app, g, jsonify, render_template, request
 from werkzeug.exceptions import HTTPException
 
@@ -62,7 +64,10 @@ def _register_domain_handlers(app) -> None:
 
 
 def json_object() -> dict:
-    body = request.get_json(silent=True)
+    try:
+        body = request.get_json(silent=True)
+    except RecursionError:  # absurdly nested JSON: json.loads gives up, silent=True does not catch it
+        body = None
     if not isinstance(body, dict):
         raise ApiError(400, "bad_request", "La petición no es válida.")
     return body
@@ -196,12 +201,16 @@ _HTTP_ERRORS = {
 }
 
 
+def _is_api_path() -> bool:
+    return request.path == "/api" or request.path.startswith("/api/")
+
+
 def register_http_error_handlers(app) -> None:
     def make(status: int):
         code, message = _HTTP_ERRORS[status]
 
         def handler(e: HTTPException):
-            if request.path.startswith("/api/"):
+            if _is_api_path():
                 return error_response(status, code, message)
             return e  # non-API pages keep Flask's default response
 
@@ -209,3 +218,12 @@ def register_http_error_handlers(app) -> None:
 
     for status in _HTTP_ERRORS:
         app.register_error_handler(status, make(status))
+
+    def generic(e: HTTPException):
+        status = e.code
+        if not _is_api_path() or status is None or status < 400:  # redirects etc. pass through
+            return e
+        slug = re.sub(r"[^a-z0-9]+", "_", e.name.lower()).strip("_") or "error"
+        return error_response(status, slug, "La petición no se pudo completar.")
+
+    app.register_error_handler(HTTPException, generic)
