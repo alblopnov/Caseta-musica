@@ -5,6 +5,12 @@ from pathlib import Path
 from typing import Protocol
 
 
+class PlayerUnavailable(Exception):
+    """The audio output cannot be used right now (no device, mixer init failed).
+
+    The song itself is fine: the engine keeps it queued and retries later."""
+
+
 class Player(Protocol):
     def play(self, path: Path) -> None: ...
 
@@ -29,8 +35,11 @@ class PygamePlayer:
         return pygame
 
     def play(self, path: Path) -> None:
-        pygame = self._ensure_mixer()
-        pygame.mixer.music.load(str(path))
+        try:
+            pygame = self._ensure_mixer()
+        except Exception as exc:  # no device / no driver: retry on the next play
+            raise PlayerUnavailable(f"audio output unavailable: {exc}") from exc
+        pygame.mixer.music.load(str(path))  # a bad file raises an ordinary error
         pygame.mixer.music.play()
 
     def stop(self) -> None:

@@ -163,3 +163,11 @@ test("paginate", () => {
   assert.equal(p.totalPages, 1);
   assert.deepEqual(p.items, []);
 });
+
+test("audioNotice: shown only when the server says audio is down", () => {
+  assert.equal(UserLogic.audioNotice(state({ audio_ok: false })), "Sin salida de audio: las canciones esperan");
+  assert.equal(UserLogic.audioNotice(state({ audio_ok: true })), null);
+  assert.equal(UserLogic.audioNotice(state()), null); // older server without the key
+  assert.equal(UserLogic.audioNotice(null), null);
+  assert.equal(UserLogic.audioNotice(state({ audio_ok: "false" })), null);
+});

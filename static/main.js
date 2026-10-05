@@ -14,6 +14,7 @@
   var counterBox = document.getElementById("queue-counter");
   var summaryBox = document.getElementById("queue-info");
   var offlineNotice = document.getElementById("offline-notice");
+  var audioNotice = document.getElementById("audio-notice");
   var uploadInput = document.getElementById("upload-input");
   var uploadBtn = document.getElementById("upload-btn");
   var uploadEnqueue = document.getElementById("upload-enqueue");
@@ -116,6 +117,12 @@
     setHidden(offlineNotice, !offline);
   }
 
+  function renderAudioNotice(state) {
+    var text = UserLogic.audioNotice(state);
+    setHidden(audioNotice, text === null);
+    audioNotice.textContent = text === null ? "" : text;
+  }
+
   function refreshState() {
     var seq = ++stateSeq;
     return Common.api("GET", "/api/state").then(
@@ -124,6 +131,7 @@
         if (seq < appliedSeq || !state || typeof state !== "object") return;
         appliedSeq = seq;
         lastState = state;
+        renderAudioNotice(state);
         renderQueue(state);
         panel.render(false);
         if (!panel.isLoaded()) panel.load().catch(function () {});

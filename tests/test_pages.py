@@ -35,6 +35,7 @@ def test_user_page_renders_with_local_assets(phone_a):
         "queue-counter",
         "queue-info",
         "offline-notice",
+        "audio-notice",
     ):
         assert f'id="{element_id}"' in html, element_id
     assert 'accept=".mp3,.wav,.ogg"' in html
@@ -75,7 +76,7 @@ def test_admin_page_renders_with_local_assets(phone_a):
     assert ids, "admin.js should look elements up by id"
     for element_id in ids:
         assert f'id="{element_id}"' in html, element_id
-    for element_id in ("pin-form", "pin-input", "pin-error", "skip-btn", "queue", "offline-notice"):
+    for element_id in ("pin-form", "pin-input", "pin-error", "skip-btn", "queue", "offline-notice", "audio-notice"):
         assert f'id="{element_id}"' in html, element_id
     assert "Entrar" in html and "Saltar canción" in html
     assert re.search(r'href="/"[^>]*>\s*Volver a Usuario', html)

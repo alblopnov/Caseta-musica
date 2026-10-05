@@ -38,10 +38,10 @@ def clock():
 
 @pytest.fixture
 def engine_factory(config, library, songs):
-    def build(player, clock=None, poll_interval=0.25):
+    def build(player, clock=None, poll_interval=0.25, **kwargs):
         t = clock if clock is not None else [0.0]
         queue = FairQueue(config.max_pending_per_user)
-        return PlaybackEngine(queue, player, library, clock=lambda: t[0], poll_interval=poll_interval)
+        return PlaybackEngine(queue, player, library, clock=lambda: t[0], poll_interval=poll_interval, **kwargs)
 
     return build
 
@@ -161,6 +161,7 @@ def test_empty_snapshot_shape(engine):
         "queue": [],
         "total_seconds": 0,
         "me": {"pending": 0, "max": 5},
+        "audio_ok": True,
     }
 
 
@@ -367,6 +368,156 @@ def test_thread_survives_failing_song(engine_factory, player):
         assert [p.name for p in player.played] == ["b.wav"]
     finally:
         engine.stop()
+
+
+# -- audio device unavailable --------------------------------------------------
+
+
+def queued(engine):
+    return [(i.song, i.owner, i.round) for i in engine._queue.snapshot()]
+
+
+def test_unavailable_audio_device_keeps_the_queue(engine, player, add, clock):
+    add("a.wav", "A")
+    add("b.wav", "B")
+    add("c.wav", "A")
+    before = queued(engine)
+    player.unavailable = True
+    for t in (0.0, 1.0, 6.0, 12.0, 30.0):
+        clock[0] = t
+        engine.tick()
+    assert queued(engine) == before
+    snap = engine.snapshot("A")
+    assert snap["now_playing"] is None
+    assert [i["song"] for i in snap["queue"]] == ["a.wav", "b.wav", "c.wav"]
+    assert snap["audio_ok"] is False
+    assert player.played == []
+
+
+def test_no_pop_during_audio_backoff(engine, player, add, clock):
+    assert PlaybackEngine.AUDIO_RETRY_SECONDS == 5.0
+    add("a.wav", "A")
+    player.unavailable = True
+    engine.tick()
+    assert player.attempts == 1
+    for t in (0.5, 2.0, 4.99):
+        clock[0] = t
+        engine.tick()
+    assert player.attempts == 1
+    clock[0] = 5.0
+    engine.tick()
+    assert player.attempts == 2
+
+
+def test_playback_resumes_with_the_same_first_song_after_backoff(engine, player, add, clock, lib_path):
+    add("a.wav", "A")
+    add("b.wav", "B")
+    player.unavailable = True
+    engine.tick()
+    player.unavailable = False
+    clock[0] = 3.0
+    engine.tick()  # still backing off
+    assert player.played == []
+    clock[0] = 5.0
+    engine.tick()
+    assert player.played == [lib_path("a.wav")]
+    snap = engine.snapshot("A")
+    assert snap["now_playing"]["song"] == "a.wav"
+    assert [i["song"] for i in snap["queue"]] == ["b.wav"]
+    assert snap["audio_ok"] is True
+
+
+def test_audio_retry_interval_is_injectable(engine_factory, player, clock):
+    engine = engine_factory(player, clock, audio_retry_seconds=1.0)
+    engine.enqueue("a.wav", "A")
+    player.unavailable = True
+    engine.tick()
+    clock[0] = 1.0
+    engine.tick()
+    assert player.attempts == 2
+
+
+def test_audio_outage_is_logged_once(engine, player, add, clock, caplog):
+    add("a.wav", "A")
+    player.unavailable = True
+    with caplog.at_level("WARNING", logger="caseta.engine"):
+        for t in range(0, 60, 5):
+            clock[0] = float(t)
+            engine.tick()
+    assert player.attempts == 12
+    assert len([r for r in caplog.records if r.levelno >= 30]) == 1
+
+
+def test_new_outage_after_recovery_is_logged_again(engine, player, add, clock, caplog):
+    add("a.wav", "A")
+    add("b.wav", "B")
+    with caplog.at_level("WARNING", logger="caseta.engine"):
+        player.unavailable = True
+        engine.tick()
+        player.unavailable = False
+        clock[0] = 5.0
+        engine.tick()  # a.wav plays
+        player.finish()
+        player.unavailable = True
+        clock[0] = 6.0
+        engine.tick()  # b.wav cannot play
+    assert len([r for r in caplog.records if r.levelno >= 30]) == 2
+    assert engine.snapshot("A")["audio_ok"] is False
+    assert [i["song"] for i in engine.snapshot("A")["queue"]] == ["b.wav"]
+
+
+def test_corrupt_file_during_normal_playback_still_drops_only_that_song(engine, player, add):
+    add("a.wav", "A")
+    add("b.wav", "B")
+    add("c.wav", "C")
+    player.fail_next = True
+    engine.tick()
+    assert engine.snapshot("A")["audio_ok"] is True
+    assert [i["song"] for i in engine.snapshot("A")["queue"]] == ["b.wav", "c.wav"]
+    engine.tick()
+    assert [p.name for p in player.played] == ["b.wav"]
+
+
+def test_song_deleted_during_outage_is_dropped_but_outage_stays(engine, player, add, clock, songs):
+    add("a.wav", "A")
+    add("b.wav", "B")
+    player.unavailable = True
+    engine.tick()
+    (songs / "a.wav").unlink()
+    clock[0] = 5.0
+    engine.tick()  # a.wav is gone: dropped without touching the player
+    assert player.attempts == 1
+    snap = engine.snapshot("A")
+    assert snap["audio_ok"] is False
+    assert [i["song"] for i in snap["queue"]] == ["b.wav"]
+
+
+def test_pygame_player_reports_missing_audio_device_as_unavailable(monkeypatch, songs):
+    import pygame
+
+    from caseta.player import PlayerUnavailable, PygamePlayer
+
+    def no_device(*args, **kwargs):
+        raise pygame.error("No available audio device")
+
+    monkeypatch.setattr(pygame.mixer, "init", no_device)
+    with pytest.raises(PlayerUnavailable):
+        PygamePlayer().play(songs / "a.wav")
+
+
+def test_pygame_player_unreadable_file_is_an_ordinary_error(monkeypatch, songs):
+    import pygame
+
+    from caseta.player import PlayerUnavailable, PygamePlayer
+
+    def corrupt(*args, **kwargs):
+        raise pygame.error("Unrecognized audio format")
+
+    monkeypatch.setattr(pygame.mixer, "init", lambda *a, **k: None)
+    monkeypatch.setattr(pygame.mixer.music, "load", corrupt)
+    with pytest.raises(pygame.error) as exc:
+        PygamePlayer().play(songs / "a.wav")
+    assert not isinstance(exc.value, PlayerUnavailable)
 
 
 def test_pygame_player_imports_and_constructs_without_audio_device():

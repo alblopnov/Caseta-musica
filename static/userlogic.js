@@ -28,6 +28,12 @@ var UserLogic = (function () {
     return null;
   }
 
+  // Text of the "no audio output" notice, or null when it should stay hidden.
+  // Only an explicit `audio_ok: false` shows it (older servers omit the key).
+  function audioNotice(state) {
+    return state && state.audio_ok === false ? "Sin salida de audio: las canciones esperan" : null;
+  }
+
   function isInQueue(song, state) {
     var np = nowPlaying(state);
     if (np && np.song === song) return true;
@@ -117,6 +123,7 @@ var UserLogic = (function () {
 
   return {
     computeBanner: computeBanner,
+    audioNotice: audioNotice,
     isInQueue: isInQueue,
     songState: songState,
     conflictMessage: conflictMessage,

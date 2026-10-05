@@ -261,7 +261,7 @@ def test_songs_lists_library(phone_a, songs):
 
 def test_state_shape_and_unknown_route_json(phone_a):
     s = phone_a.get("/api/state").json
-    assert set(s) == {"now_playing", "queue", "total_seconds", "me"}
+    assert set(s) == {"now_playing", "queue", "total_seconds", "me", "audio_ok"}
     assert phone_a.get("/api/nope").json["error"]
     r = phone_a.get("/api/nope")
     assert (r.status_code, r.json["code"]) == (404, "not_found")

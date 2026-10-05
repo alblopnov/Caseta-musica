@@ -8,12 +8,15 @@ from typing import Callable
 
 from caseta.fair_queue import FairQueue, NotOwner, QueueItem
 from caseta.library import Library
-from caseta.player import Player
+from caseta.player import Player, PlayerUnavailable
 
 log = logging.getLogger(__name__)
 
 
 class PlaybackEngine:
+    # After PlayerUnavailable, wait this long before trying the audio output again.
+    AUDIO_RETRY_SECONDS = 5.0
+
     def __init__(
         self,
         queue: FairQueue,
@@ -21,12 +24,18 @@ class PlaybackEngine:
         library: Library,
         clock: Callable[[], float] = time.monotonic,
         poll_interval: float = 0.25,
+        audio_retry_seconds: float | None = None,
     ):
         self._queue = queue
         self._player = player
         self._library = library
         self._clock = clock
         self._poll_interval = poll_interval
+        self._audio_retry_seconds = (
+            self.AUDIO_RETRY_SECONDS if audio_retry_seconds is None else audio_retry_seconds
+        )
+        self._audio_down = False  # a PlayerUnavailable is outstanding
+        self._audio_retry_at = 0.0
         self._lock = threading.RLock()
         self._current: QueueItem | None = None
         self._started_at = 0.0
@@ -70,16 +79,40 @@ class PlaybackEngine:
                 self._current = None
             if self._current is not None:
                 return
+            if self._audio_down and self._clock() < self._audio_retry_at:
+                return  # backing off: the songs wait in the queue
             item = self._queue.pop_next()
             if item is None:
                 return
             try:
-                self._player.play(self._library.resolve(item.song))
+                path = self._library.resolve(item.song)
+            except Exception:  # deleted or moved since it was queued: says nothing about audio
+                log.exception("Could not find %r (queued by %s); dropping it", item.song, item.owner)
+                return
+            try:
+                self._player.play(path)
+            except PlayerUnavailable as exc:
+                # The device is the problem, not the song: keep it first in line.
+                self._queue.push_front(item)
+                if not self._audio_down:
+                    log.error("Audio output unavailable (%s); songs stay queued, retrying every %.0f s",
+                              exc, self._audio_retry_seconds)
+                self._audio_down = True
+                self._audio_retry_at = self._clock() + self._audio_retry_seconds
+                return
             except Exception:
+                self._audio_ok_again()
                 log.exception("Could not play %r (queued by %s); dropping it", item.song, item.owner)
                 return
+            self._audio_ok_again()
             self._current = item
             self._started_at = self._clock()
+
+    def _audio_ok_again(self) -> None:
+        """The player got past opening the device: any outage is over."""
+        if self._audio_down:
+            log.info("Audio output is back")
+        self._audio_down = False
 
     def _stop_current(self) -> None:
         self._player.stop()
@@ -152,4 +185,5 @@ class PlaybackEngine:
                     "pending": self._queue.pending_count(viewer),
                     "max": self._queue.max_pending_per_user,
                 },
+                "audio_ok": not self._audio_down,
             }

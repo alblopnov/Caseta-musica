@@ -15,6 +15,7 @@
   var dragging = null; // id of the queued row being dragged; freezes the queue DOM
 
   var offlineNotice = document.getElementById("offline-notice");
+  var audioNotice = document.getElementById("audio-notice");
   var loginSection = document.getElementById("login-section");
   var adminSection = document.getElementById("admin-section");
   var pinForm = document.getElementById("pin-form");
@@ -301,6 +302,12 @@
     setHidden(offlineNotice, !offline);
   }
 
+  function renderAudioNotice(state) {
+    var text = UserLogic.audioNotice(state);
+    setHidden(audioNotice, text === null);
+    audioNotice.textContent = text === null ? "" : text;
+  }
+
   function refreshState() {
     var seq = ++stateSeq;
     return Common.api("GET", "/api/state").then(
@@ -309,6 +316,7 @@
         if (!isAdmin || seq < appliedSeq || !state || typeof state !== "object") return;
         appliedSeq = seq;
         lastState = state;
+        renderAudioNotice(state); // outside the queue box: safe during a drag
         if (dragging === null) renderQueue(state); // never rebuild rows under a drag
         panel.render(false);
         if (!panel.isLoaded()) panel.load().catch(function () {});
