@@ -16,7 +16,7 @@ var Format = (function () {
     var s = toSeconds(seconds);
     if (s < 60) return "menos de 1 min";
     var minutes = Math.round(s / 60);
-    if (s < 3600) return "~" + minutes + " min";
+    if (minutes < 60) return "~" + minutes + " min";
     var hours = Math.floor(minutes / 60);
     return "~" + hours + " h " + pad2(minutes % 60) + " min";
   }

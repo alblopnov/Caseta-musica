@@ -26,6 +26,10 @@ var Common = (function () {
     }
   }
 
+  function networkError() {
+    throw new ApiError(0, "network", "No se pudo conectar con el servidor");
+  }
+
   // api("POST", "/api/queue", {song: "x"}) -> parsed JSON, or rejects with ApiError.
   function api(method, url, body) {
     var opts = { method: method, credentials: "same-origin", headers: {} };
@@ -39,7 +43,7 @@ var Common = (function () {
     }
     return fetch(url, opts).then(
       function (res) {
-        return res.text().then(function (text) {
+        return res.text().then(function (text) { return text; }, networkError).then(function (text) {
           var data = parseBody(text);
           if (res.ok) return data;
           var obj = data && typeof data === "object" ? data : {};
@@ -50,9 +54,7 @@ var Common = (function () {
           );
         });
       },
-      function () {
-        throw new ApiError(0, "network", "No se pudo conectar con el servidor");
-      }
+      networkError
     );
   }
 
@@ -67,6 +69,15 @@ var Common = (function () {
     }
   }
 
+  var URL_ATTRS = ["href", "src", "action", "formaction"];
+
+  // True for javascript:, data: and vbscript: URLs, ignoring case, whitespace
+  // and control characters (browsers strip them inside the scheme).
+  function isDangerousUrl(value) {
+    var v = String(value).replace(/[\u0000-\u0020\u007f-\u009f]/g, "").toLowerCase();
+    return /^(javascript|data|vbscript):/.test(v);
+  }
+
   // el("div", {class: "box", onclick: fn, dataset: {id: 1}}, "texto", childNode)
   function el(tag, props) {
     var node = document.createElement(tag);
@@ -78,8 +89,11 @@ var Common = (function () {
         node.className = String(value);
       } else if (key === "dataset") {
         Object.keys(value).forEach(function (k) { node.dataset[k] = String(value[k]); });
-      } else if (key.indexOf("on") === 0 && typeof value === "function") {
-        node[key.toLowerCase()] = value;
+      } else if (key.indexOf("on") === 0) {
+        // Event handlers only ever come from functions; strings are ignored.
+        if (typeof value === "function") node[key.toLowerCase()] = value;
+      } else if (URL_ATTRS.indexOf(key.toLowerCase()) !== -1 && isDangerousUrl(value)) {
+        return;
       } else {
         node.setAttribute(key, value === true ? "" : String(value));
       }
@@ -107,9 +121,17 @@ var Common = (function () {
         function () { running = false; }
       );
     }
+    function onVisibility() {
+      if (!document.hidden) tick();
+    }
+    var hasDoc = typeof document !== "undefined" && typeof document.addEventListener === "function";
+    if (hasDoc) document.addEventListener("visibilitychange", onVisibility);
     tick();
     var handle = setInterval(tick, ms);
-    return function stop() { clearInterval(handle); };
+    return function stop() {
+      clearInterval(handle);
+      if (hasDoc) document.removeEventListener("visibilitychange", onVisibility);
+    };
   }
 
   var toastHolder = null;
@@ -119,7 +141,7 @@ var Common = (function () {
       toastHolder = el("div", { class: "toast-holder" });
       document.body.appendChild(toastHolder);
     }
-    var box = el("div", { class: "notification is-" + (kind || "info") });
+    var box = el("div", { class: "notification is-" + (kind || "info"), role: "alert" });
     box.textContent = String(message);
     toastHolder.appendChild(box);
     setTimeout(function () { box.remove(); }, 4000);

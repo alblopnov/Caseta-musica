@@ -7,7 +7,10 @@ test("formatEta", () => {
   assert.equal(Format.formatEta(59), "menos de 1 min");
   assert.equal(Format.formatEta(60), "~1 min");
   assert.equal(Format.formatEta(150), "~3 min"); // 2.5 rounds up
-  assert.equal(Format.formatEta(3599), "~60 min");
+  assert.equal(Format.formatEta(3569), "~59 min");
+  assert.equal(Format.formatEta(3570), "~1 h 00 min"); // rounds to 60 min -> hour form
+  assert.equal(Format.formatEta(3599), "~1 h 00 min");
+  assert.equal(Format.formatEta(3600), "~1 h 00 min");
   assert.equal(Format.formatEta(3900), "~1 h 05 min");
   assert.equal(Format.formatEta(7200), "~2 h 00 min");
 });

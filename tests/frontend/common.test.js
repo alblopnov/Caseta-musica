@@ -16,9 +16,12 @@ class FakeNode {
   setAttribute(k, v) { this.attrs[k] = String(v); }
   remove() { this.removed = true; }
 }
+const listeners = {};
 global.document = {
   hidden: false,
   body: new FakeNode("body"),
+  addEventListener: (type, f) => { (listeners[type] = listeners[type] || []).push(f); },
+  removeEventListener: (type, f) => { listeners[type] = (listeners[type] || []).filter((g) => g !== f); },
   createElement: (t) => new FakeNode(t),
   createTextNode: (t) => ({ nodeType: 3, textContent: String(t) }),
 };
@@ -37,7 +40,54 @@ test("el builds nodes with text children, never innerHTML", () => {
   assert.equal(n.children[1].tagName, "span");
   n.onclick();
   assert.equal(clicked, 1);
-  assert.equal("innerHTML" in n, false);
+});
+
+test("el keeps markup in text children as plain text nodes", () => {
+  const payload = '<img src=x onerror="alert(1)">';
+  const n = Common.el("p", {}, payload);
+  assert.equal(n.children.length, 1);
+  assert.equal(n.children[0].nodeType, 3);
+  assert.equal(n.children[0].textContent, payload);
+  assert.equal(n.innerHTML, undefined);
+});
+
+test("el ignores string-valued on* props", () => {
+  const n = Common.el("button", { onclick: "alert(1)", onerror: "alert(2)", onmouseover: "x()" });
+  assert.deepEqual(n.attrs, {});
+  assert.equal(n.onclick, undefined);
+  assert.equal(n.onerror, undefined);
+  assert.equal(n.onmouseover, undefined);
+  const fn = () => {};
+  assert.equal(Common.el("button", { onclick: fn }).onclick, fn);
+});
+
+test("el drops javascript:/data:/vbscript: URLs in href, src, action, formaction", () => {
+  const bad = [
+    "javascript:alert(1)",
+    "JaVaScRiPt:alert(1)",
+    "  javascript:alert(1)",
+    "java\tscript:alert(1)",
+    "java\nscript:alert(1)",
+    "\u0001javascript:alert(1)",
+    " \r\n j a v a s c r i p t : alert(1)",
+    "data:text/html,<script>alert(1)</script>",
+    "DATA:text/html;base64,AAAA",
+    "vbscript:msgbox(1)",
+  ];
+  for (const attr of ["href", "src", "action", "formaction"]) {
+    for (const url of bad) {
+      const n = Common.el("a", { [attr]: url });
+      assert.equal(attr in n.attrs, false, attr + " " + JSON.stringify(url));
+    }
+  }
+});
+
+test("el keeps safe URLs", () => {
+  assert.equal(Common.el("a", { href: "/static/x" }).attrs.href, "/static/x");
+  assert.equal(Common.el("a", { href: "relative/page.html" }).attrs.href, "relative/page.html");
+  assert.equal(Common.el("a", { href: "#top" }).attrs.href, "#top");
+  assert.equal(Common.el("img", { src: "/api/cover?x=data:1" }).attrs.src, "/api/cover?x=data:1");
+  assert.equal(Common.el("a", { title: "javascript:ok" }).attrs.title, "javascript:ok");
 });
 
 function resp(status, body) {
@@ -91,6 +141,68 @@ test("api tolerates non-JSON error bodies", async () => {
   await assert.rejects(Common.api("GET", "/api/x"), (e) => e.status === 500 && typeof e.message === "string");
 });
 
+test("api maps a failing body read to a network ApiError", async () => {
+  global.fetch = async () => ({ ok: true, status: 200, text: async () => { throw new TypeError("aborted"); } });
+  await assert.rejects(Common.api("GET", "/api/x"), (e) => {
+    assert.ok(e instanceof Common.ApiError);
+    assert.equal(e.status, 0);
+    assert.equal(e.code, "network");
+    assert.equal(e.message, "No se pudo conectar con el servidor");
+    return true;
+  });
+});
+
+test("api non-JSON error body falls back to http_<status>", async () => {
+  global.fetch = async () => resp(500, "<html>boom</html>");
+  await assert.rejects(Common.api("GET", "/api/x"), (e) => {
+    assert.equal(e.status, 500);
+    assert.equal(e.code, "http_500");
+    assert.equal(e.message, "Error 500");
+    return true;
+  });
+});
+
+test("api resolves null for an empty 204 body", async () => {
+  global.fetch = async () => resp(204, "");
+  assert.equal(await Common.api("DELETE", "/api/x"), null);
+});
+
+test("startPolling runs on visibilitychange, once hidden-at-load tab shows", async () => {
+  const realSetInterval = global.setInterval;
+  const realClear = global.clearInterval;
+  global.setInterval = () => 1;
+  global.clearInterval = () => {};
+  try {
+    document.hidden = true;
+    let calls = 0;
+    let release;
+    const stop = Common.startPolling(() => { calls++; return new Promise((r) => { release = r; }); }, 1000);
+    assert.equal(calls, 0); // hidden at load: first tick skipped
+    assert.equal(listeners.visibilitychange.length, 1);
+    document.hidden = false;
+    listeners.visibilitychange[0]();
+    assert.equal(calls, 1); // runs as soon as the tab is visible
+    listeners.visibilitychange[0]();
+    assert.equal(calls, 1); // still pending: no overlap
+    release();
+    await new Promise((r) => setImmediate(r));
+    document.hidden = true;
+    listeners.visibilitychange[0]();
+    assert.equal(calls, 1); // becoming hidden does not run
+    document.hidden = false;
+    listeners.visibilitychange[0]();
+    assert.equal(calls, 2); // visible again: immediate run
+    release();
+    await new Promise((r) => setImmediate(r));
+    stop();
+    assert.equal(listeners.visibilitychange.length, 0);
+  } finally {
+    document.hidden = false;
+    global.setInterval = realSetInterval;
+    global.clearInterval = realClear;
+  }
+});
+
 test("startPolling runs now, never overlaps, survives errors, stops", async () => {
   const realSetInterval = global.setInterval;
   const realClear = global.clearInterval;
@@ -141,6 +253,7 @@ test("toast adds a Bulma notification and auto-dismisses", () => {
     const box = holder.children[holder.children.length - 1];
     assert.match(box.className, /notification is-danger/);
     assert.equal(box.textContent, "Hola <b>");
+    assert.equal(box.attrs.role, "alert");
     cb();
     assert.equal(box.removed, true);
   } finally {
