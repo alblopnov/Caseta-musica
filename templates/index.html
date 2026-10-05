@@ -1,71 +1,42 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Los Bala Perdia 🎡</title>
-  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
-  <link href="https://fonts.googleapis.com/css2?family=Lobster&family=Roboto:wght@400;700&display=swap" rel="stylesheet">
-  <style>
-    html {
-      overflow-x: hidden;
-      overflow-y: auto;
-    }
-    body {
-      font-family: 'Roboto', sans-serif;
-      background: #fdf2e9;
-    }
-    .circle {
-      position: absolute;
-      background: rgba(255,0,0,0.1);
-      border-radius: 50%;
-      z-index: 0;
-    }
-    .circle1 { width: 300px; height: 300px; top: -100px; left: -100px; }
-    .circle2 { width: 200px; height: 200px; top: 150px; right: -80px; }
-    .circle3 { width: 400px; height: 400px; bottom: -150px; left: 50%; transform: translateX(-50%); }
-    .header-title {
-      position: relative;
-      z-index: 1;
-      font-family: 'Lobster', cursive;
-      color: #b22222;
-      text-shadow: 2px 2px #fff;
-    }
-  </style>
-</head>
-<body>
-  <div class="circle circle1"></div>
-  <div class="circle circle2"></div>
-  <div class="circle circle3"></div>
+{% extends "base.html" %}
 
+{% block body %}
   <section class="section">
     <div class="container">
       <h1 class="title has-text-centered header-title">
         🎡 Los Bala Perdia 🔴
       </h1>
+
+      <div id="offline-notice" class="notification is-danger is-hidden" role="alert">
+        Sin conexión con la caseta
+      </div>
+
       <div class="columns">
         <div class="column is-half">
 
           <!-- Formulario de subida de canción -->
           <div class="field">
-            <label class="label">Subir tu canción</label>
+            <label class="label" for="upload-input">Subir tu canción</label>
             <div class="control is-flex">
-              <input id="upload-input" class="input" type="file" accept=".mp3,.wav">
-              <button id="upload-btn" class="button is-link ml-2">Subir</button>
+              <input id="upload-input" class="input" type="file" accept=".mp3,.wav,.ogg">
+              <button id="upload-btn" class="button is-link ml-2" type="button">Subir</button>
             </div>
+            <label class="checkbox mt-2">
+              <input id="upload-enqueue" type="checkbox" checked>
+              Añadir a la cola al subir
+            </label>
           </div>
 
-          <div id="categories" class="buttons has-addons mb-4"></div>
+          <div id="categories" class="buttons mb-4"></div>
           <div class="field">
-            <label class="label">Buscar canción</label>
+            <label class="label" for="search">Buscar canción</label>
             <div class="control">
-              <input id="search" class="input" type="text" placeholder="Filtrar lista...">
+              <input id="search" class="input" type="search" placeholder="Filtrar lista..." autocomplete="off">
             </div>
           </div>
-          <nav class="pagination" aria-label="Paginación canciones">
-            <button id="prev-page" class="button" disabled>Anterior</button>
-            <button id="next-page" class="button" disabled>Siguiente</button>
+          <nav class="pagination is-flex is-align-items-center mb-3" aria-label="Paginación canciones">
+            <button id="prev-page" class="button" type="button" disabled>Anterior</button>
+            <button id="next-page" class="button ml-2" type="button" disabled>Siguiente</button>
             <span id="page-info" class="ml-4"></span>
           </nav>
           <div id="song-list" class="box">
@@ -77,20 +48,21 @@
             </table>
           </div>
         </div>
+
         <div class="column is-half">
           <h2 class="subtitle header-title">🎶 Cola de reproducción</h2>
-          <div id="queue" class="box">
-            <table class="table is-fullwidth">
-              <thead><tr><th>Canción</th></tr></thead>
-              <tbody></tbody>
-            </table>
-          </div>
-          <!-- Conteo de canciones -->
+          <div id="queue-banner" class="notification is-info is-light is-hidden"></div>
+          <p id="queue-counter" class="mb-2"></p>
+          <div id="queue" class="box"></div>
+          <!-- Resumen de la cola -->
           <p id="queue-info" class="has-text-centered mt-2"></p>
         </div>
       </div>
     </div>
   </section>
-  <script src="/static/main.js"></script>
-</body>
-</html>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{{ url_for('static', filename='userlogic.js') }}"></script>
+  <script src="{{ url_for('static', filename='main.js') }}"></script>
+{% endblock %}

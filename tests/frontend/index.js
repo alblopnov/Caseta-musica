@@ -2,3 +2,4 @@
 // scanning the directory, so this entry point loads every test file.
 require("./format.test.js");
 require("./common.test.js");
+require("./userlogic.test.js");

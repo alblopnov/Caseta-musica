@@ -7,9 +7,12 @@ ROOT = Path(__file__).resolve().parent.parent
 # every template once index.html / admin.html are rewritten.
 OFFLINE_FILES = [
     "templates/base.html",
+    "templates/index.html",
     "static/style.css",
     "static/common.js",
     "static/format.js",
+    "static/userlogic.js",
+    "static/main.js",
 ]
 
 REMOTE_REF = re.compile(r"(src|href|url\()\s*=?\s*[\"']?(https?:)?//", re.I)
