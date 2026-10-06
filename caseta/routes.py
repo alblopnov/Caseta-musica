@@ -6,7 +6,7 @@ import re
 from flask import Blueprint, current_app, g, jsonify, render_template, request
 from werkzeug.exceptions import HTTPException
 
-from caseta.fair_queue import DuplicateSong, NotOwner, QueueFull, UnknownItem
+from caseta.song_queue import DuplicateSong, NotOwner, QueueFull, UnknownItem
 from caseta.identity import is_admin, set_admin
 from caseta.library import InvalidUpload, SongNotFound
 

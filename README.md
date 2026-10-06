@@ -1,6 +1,6 @@
 # Caseta
 
-Caseta is a shared jukebox for a party or a small venue. One machine (the target is a Raspberry Pi) plays music through its speakers, and everyone on the same network picks songs from their own phone's browser. The queue is fair: each phone gets a turn in rotation, so one person cannot monopolise the speakers.
+Caseta is a shared jukebox for a party or a small venue. One machine (the target is a Raspberry Pi) plays music through its speakers, and everyone on the same network picks songs from their own phone's browser. The queue is first come, first served: songs play in the order they were added, whoever added them.
 
 The web UI is in Spanish. This README is in English.
 
@@ -10,7 +10,7 @@ The web UI is in Spanish. This README is in English.
 - Planned (see the deployment plan below, not set up by this repo yet): the Pi runs its own Wi-Fi hotspot at `10.42.0.1` and, because the app answers unknown host names with a redirect to the jukebox page, phones show the "sign in to network" popup automatically. Until then, phones on any shared Wi-Fi can open the app by the machine's IP address.
 - Audio is played by `pygame.mixer`; the app is served by `waitress`. It works with zero internet: no external URL is referenced by any page.
 
-The planned Pi-side setup (hotspot, DNS, systemd unit) is described in [`docs/superpowers/plans/2026-10-05-pi-hotspot-deployment.md`](docs/superpowers/plans/2026-10-05-pi-hotspot-deployment.md). The design of the app itself is in [`docs/superpowers/plans/2026-10-05-fair-shared-queue.md`](docs/superpowers/plans/2026-10-05-fair-shared-queue.md).
+The planned Pi-side setup (hotspot, DNS, systemd unit) is described in [`docs/superpowers/plans/2026-10-05-pi-hotspot-deployment.md`](docs/superpowers/plans/2026-10-05-pi-hotspot-deployment.md). The design of the app itself is in [`docs/superpowers/plans/2026-10-05-fair-shared-queue.md`](docs/superpowers/plans/2026-10-05-fair-shared-queue.md) (the round-robin ordering described there was replaced by first come, first served; see Queue rules below).
 
 ## Adding music
 
@@ -44,17 +44,14 @@ All settings are environment variables. Only `CASETA_ADMIN_PIN` is needed for a 
 
 An invalid value (for example `CASETA_PORT=abc`) makes `app.py` print an error and exit with status 2.
 
-## Fairness rules
+## Queue rules
 
-- **Round-robin by phone.** Every song gets a turn number (a "round"). A phone's next song goes one round after its previous one, and never into a round earlier than the one playing now. Songs play in round order, and within a round in the order they were added. So a phone that adds 20 songs does not delay another phone's first song past the round that is playing now.
-- **Being played does not reset your place.** The queue remembers each phone's last round even after that song has played. A phone that adds one song every time its previous one starts still waits behind the songs other phones have been waiting with; it cannot keep cutting in front of them.
-- **Newcomers join the current round.** A new phone, or one whose last song was in an earlier round than the one playing now, goes after the songs already in the round that is playing now, and ahead of songs waiting in later rounds.
-- **Removing your own waiting song** moves your later songs up one round, so your next song takes the freed turn instead of going further back.
-- **Cap per phone.** A phone can have at most `CASETA_MAX_PENDING` (default 5) songs waiting. The next attempt gets a 409 with code `full`. The song currently playing no longer counts.
+- **First come, first served.** Songs play in the order they were added. If you add 5 songs and someone else then adds 5 more, yours are positions 1 to 5 and theirs are 6 to 10. Nobody's song is ever placed in front of one that was added earlier.
+- **Cap per phone.** A phone can have at most `CASETA_MAX_PENDING` (default 5) songs waiting. The next attempt gets a 409 with code `full`. The song currently playing no longer counts, so you can add another one as soon as yours starts.
 - **No duplicates.** A song that is already waiting in the queue cannot be added again (409, code `duplicate`).
-- **Remove only your own songs.** You can remove or stop only songs your phone added. Other phones' songs answer 403. The admin can remove anything.
+- **Remove only your own songs.** You can remove or stop only songs your phone added. Other phones' songs answer 403. Removing a song just closes the gap; everyone else keeps their order.
 - **No cutting in line.** Clients cannot choose a position; any `position` sent when adding is ignored. Only the admin can reorder.
-- **Admin.** The admin page is at `/albertitoeselmejor` (it is not linked from the main page). Logging in needs `CASETA_ADMIN_PIN`. After 5 wrong PINs from the same IP address, that address is locked out for 60 seconds. The admin can skip the current song, remove any song, and move songs to a position. A moved song takes the round of the song it now sits in front of (or of the song before it, when moved to the end), so songs added later are still placed by the round rule: they do not jump in front of a song the admin moved to the front, and adding songs never reorders songs that are already waiting. The admin login is a browser-session cookie: it ends when the browser is closed or the server restarts.
+- **Admin.** The admin page is at `/albertitoeselmejor` (it is not linked from the main page). Logging in needs `CASETA_ADMIN_PIN`. After 5 wrong PINs from the same IP address, that address is locked out for 60 seconds. The admin can skip the current song, remove any song, and move a song to any position. Songs added later always go to the end. The admin login is a browser-session cookie: it ends when the browser is closed or the server restarts.
 
 ## API summary
 
@@ -107,7 +104,7 @@ Run these with the virtual environment's Python (`.venv/Scripts/python -m pytest
 
 ## Known limitations
 
-- **Identity is a cookie.** A "phone" is a random id stored in a cookie (`caseta_client`, valid one year). Clearing cookies, using a private tab or switching browsers creates a new identity, which bypasses the per-phone cap and the round-robin. Fairness is for a friendly crowd, not a defence against someone determined to cheat.
+- **Identity is a cookie.** A "phone" is a random id stored in a cookie (`caseta_client`, valid one year). Clearing cookies, using a private tab or switching browsers creates a new identity, which bypasses the per-phone cap (the order is always first come, first served). The cap is for a friendly crowd, not a defence against someone determined to cheat.
 - **iOS captive-portal mini-browser has its own cookie jar** (relevant once the planned hotspot is set up). A phone that adds songs in the popup and then in Safari looks like two different phones, so it can reach the cap twice and cannot remove songs it added from the other browser. Opening the page in the full browser from the start avoids this.
 - **Unknown host names are redirected.** A request whose `Host` is a host name other than `localhost`, `127.0.0.1`, `10.42.0.1`, `caseta.local` or one listed in `CASETA_ALLOWED_HOSTS` is redirected (302) to `http://10.42.0.1/` (the planned hotspot address). A `Host` that is an IP address (for example `http://192.168.1.20:5000/` or `http://[fe80::1]:5000/`) is always served, so on a home or venue Wi-Fi open the app by the machine's IP. Reaching it by a router or mDNS name that is not in the list needs that name in `CASETA_ALLOWED_HOSTS`.
 - **Unsupported formats.** `m4a` (the default for many iPhone recordings) and `flac` are rejected at upload and not listed.

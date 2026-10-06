@@ -1,4 +1,4 @@
-"""PlaybackEngine: drives a Player from a FairQueue and reports queue state."""
+"""PlaybackEngine: drives a Player from a SongQueue and reports queue state."""
 from __future__ import annotations
 
 import logging
@@ -6,7 +6,7 @@ import threading
 import time
 from typing import Callable
 
-from caseta.fair_queue import FairQueue, NotOwner, QueueItem
+from caseta.song_queue import NotOwner, QueueItem, SongQueue
 from caseta.library import Library
 from caseta.player import Player, PlayerUnavailable
 
@@ -19,7 +19,7 @@ class PlaybackEngine:
 
     def __init__(
         self,
-        queue: FairQueue,
+        queue: SongQueue,
         player: Player,
         library: Library,
         clock: Callable[[], float] = time.monotonic,

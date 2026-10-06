@@ -12,13 +12,13 @@ def login(c, pin="1234"):
     return post(c, "/api/admin/login", {"pin": pin})
 
 
-def test_two_phones_cannot_jump_each_other(app, phone_a, phone_b, songs):
+def test_songs_queue_in_the_order_they_are_added_across_phones(app, phone_a, phone_b, songs):
     for s in ("a1.wav", "a2.wav", "a3.wav"):
         assert post(phone_a, "/api/queue", {"song": s}).status_code == 201
     post(phone_b, "/api/queue", {"song": "b1.wav"})
     q = phone_b.get("/api/state").json["queue"]
-    assert [i["title"] for i in q] == ["a1", "b1", "a2", "a3"]
-    assert [i["mine"] for i in q] == [False, True, False, False]
+    assert [i["title"] for i in q] == ["a1", "a2", "a3", "b1"]
+    assert [i["mine"] for i in q] == [False, False, False, True]
 
 
 def test_enqueue_returns_id_song_and_title(phone_a, songs):
@@ -164,12 +164,16 @@ def test_sixth_song_and_duplicate_return_409_with_codes(phone_a, phone_b, songs)
     assert (r.status_code, r.json["code"]) == (409, "duplicate")
 
 
-def test_second_phone_song_plays_second_after_spam(phone_a, phone_b, songs):
-    for i in range(5):
-        post(phone_a, "/api/queue", {"song": f"s{i}.wav"})
-    post(phone_b, "/api/queue", {"song": "b1.wav"})
-    titles = [i["title"] for i in phone_b.get("/api/state").json["queue"]]
-    assert titles[:2] == ["s0", "b1"]
+def test_five_songs_then_five_from_another_phone_are_positions_1_to_5_and_6_to_10(phone_a, phone_b, songs):
+    first = [f"s{i}.wav" for i in range(5)]
+    second = ["s5.wav", "a1.wav", "a2.wav", "a3.wav", "b1.wav"]
+    for song in first:
+        assert post(phone_a, "/api/queue", {"song": song}).status_code == 201
+    for song in second:
+        assert post(phone_b, "/api/queue", {"song": song}).status_code == 201
+    q = phone_b.get("/api/state").json["queue"]
+    assert [i["song"] for i in q] == first + second
+    assert [i["mine"] for i in q] == [False] * 5 + [True] * 5
 
 
 @pytest.mark.parametrize("bad", ["../x.mp3", "/etc/passwd", "reggaeton/../../x.mp3", "notes.txt"])

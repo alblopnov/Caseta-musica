@@ -1,5 +1,7 @@
 # Fair Shared Queue Implementation Plan
 
+> **Superseded in part (queue ordering).** This plan chose a round-robin ("fair") order. After review, the project owner decided the queue must be plain **first come, first served**: songs play in the order they were added (5 songs from one phone, then 5 from another, are positions 1 to 5 and 6 to 10). The round-robin parts below (the "Fairness policy" decision, `FairQueue`, rounds, Review Focus item 4's ordering claim) describe the original idea and no longer match the code, which now uses `caseta/song_queue.py` (`SongQueue`). Everything else here (cap per phone, no duplicates, ownership, admin PIN, offline UI, security fixes) still applies. See the README, "Queue rules".
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let many phones add music to one Raspberry Pi sound system through a single queue where nobody can jump, remove, or reorder anyone else's songs.

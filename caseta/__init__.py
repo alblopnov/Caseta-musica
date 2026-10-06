@@ -7,7 +7,7 @@ from flask import Flask
 
 from caseta.config import Config
 from caseta.engine import PlaybackEngine
-from caseta.fair_queue import FairQueue
+from caseta.song_queue import SongQueue
 from caseta.identity import AdminAuth, init_identity
 from caseta.library import Library
 from caseta.player import Player
@@ -39,7 +39,7 @@ def create_app(
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
     library = Library(config)
-    engine = PlaybackEngine(FairQueue(config.max_pending_per_user), player, library)
+    engine = PlaybackEngine(SongQueue(config.max_pending_per_user), player, library)
     app.extensions["config"] = config
     app.extensions["library"] = library
     app.extensions["engine"] = engine

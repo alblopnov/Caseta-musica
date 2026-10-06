@@ -3,7 +3,7 @@ import time
 import pytest
 
 from caseta.engine import PlaybackEngine
-from caseta.fair_queue import DuplicateSong, FairQueue, NotOwner, QueueFull, UnknownItem
+from caseta.song_queue import DuplicateSong, NotOwner, QueueFull, SongQueue, UnknownItem
 from caseta.library import SongNotFound
 from tests.conftest import make_wav
 from tests.fakes import FakePlayer
@@ -40,7 +40,7 @@ def clock():
 def engine_factory(config, library, songs):
     def build(player, clock=None, poll_interval=0.25, **kwargs):
         t = clock if clock is not None else [0.0]
-        queue = FairQueue(config.max_pending_per_user)
+        queue = SongQueue(config.max_pending_per_user)
         return PlaybackEngine(queue, player, library, clock=lambda: t[0], poll_interval=poll_interval, **kwargs)
 
     return build
@@ -93,24 +93,24 @@ def test_next_song_starts_only_after_current_finishes(engine, player, add):
     assert len(player.played) == 2
 
 
-def test_fairness_end_to_end(engine, player, add):
+def test_songs_play_in_the_order_they_were_added(engine, player, add):
     for s in ("a1.wav", "a2.wav", "a3.wav"):
         add(s, "A")
     add("b1.wav", "B")
     played = drain(engine, player)
-    assert [p.name for p in played] == ["a1.wav", "b1.wav", "a2.wav", "a3.wav"]
+    assert [p.name for p in played] == ["a1.wav", "a2.wav", "a3.wav", "b1.wav"]
 
 
-def test_readding_while_own_song_plays_does_not_cut_ahead(engine, player, add):
+def test_a_song_added_while_your_own_song_plays_goes_to_the_end(engine, player, add):
     for s in ("a1.wav", "a2.wav", "a3.wav"):
         add(s, "A")
     add("b1.wav", "B")
     engine.tick()  # a1
     player.finish()
-    engine.tick()  # b1 starts; B queues another song right away
+    engine.tick()  # a2 starts; B queues another song right away
     add("d.wav", "B")
     played = drain(engine, player)
-    assert [p.name for p in played] == ["a1.wav", "b1.wav", "a2.wav", "d.wav", "a3.wav"]
+    assert [p.name for p in played] == ["a1.wav", "a2.wav", "a3.wav", "b1.wav", "d.wav"]
 
 
 def test_eta_uses_remaining_time_of_current_song(engine, player, add, clock):
@@ -374,7 +374,7 @@ def test_thread_survives_failing_song(engine_factory, player):
 
 
 def queued(engine):
-    return [(i.song, i.owner, i.round) for i in engine._queue.snapshot()]
+    return [(i.song, i.owner) for i in engine._queue.snapshot()]
 
 
 def test_unavailable_audio_device_keeps_the_queue(engine, player, add, clock):
