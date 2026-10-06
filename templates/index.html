@@ -1,70 +1,87 @@
 {% extends "base.html" %}
 
 {% block body %}
-  <section class="section">
-    <div class="container">
-      <h1 class="title has-text-centered header-title">
-        🎡 Los Bala Perdia 🔴
-      </h1>
+  <div class="page">
+    <header class="masthead">
+      <span class="mark" aria-hidden="true"></span>
+      <h1 class="wordmark">Los Bala Perdia</h1>
+    </header>
 
-      <div id="offline-notice" class="notification is-danger is-hidden" role="alert">
-        Sin conexión con la caseta
-      </div>
-      <div id="audio-notice" class="notification is-warning is-hidden" role="status"></div>
+    <div id="offline-notice" class="notice notice-danger is-hidden" role="alert">
+      Sin conexión con la caseta
+    </div>
+    <div id="audio-notice" class="notice notice-warn is-hidden" role="status"></div>
 
-      <div class="columns">
-        <div class="column is-half">
+    <main class="shell">
+      <section class="col-library" aria-labelledby="library-title">
+        <h2 id="library-title" class="panel-title">Canciones</h2>
 
-          <!-- Formulario de subida de canción -->
+        <!-- Formulario de subida de canción -->
+        <div class="panel">
           <div class="field">
-            <label class="label" for="upload-input">Subir tu canción</label>
-            <div class="control is-flex">
-              <input id="upload-input" class="input" type="file" accept=".mp3,.wav,.ogg">
-              <button id="upload-btn" class="button is-link ml-2" type="button">Subir</button>
+            <label class="field-label" for="upload-input">Subir tu canción</label>
+            <div class="upload-row">
+              <input id="upload-input" type="file" accept=".mp3,.wav,.ogg">
+              <button id="upload-btn" class="btn btn-primary" type="button">
+                <span class="ico ico-upload" aria-hidden="true"></span>Subir
+              </button>
             </div>
-            <label class="checkbox mt-2">
+            <label class="check">
               <input id="upload-enqueue" type="checkbox" checked>
               Añadir a la cola al subir
             </label>
           </div>
+        </div>
 
-          <div id="categories" class="buttons mb-4"></div>
-          <div class="field">
-            <label class="label" for="search">Buscar canción</label>
-            <div class="control">
-              <input id="search" class="input" type="search" placeholder="Filtrar lista..." autocomplete="off">
+        <div class="panel">
+          <div class="library-tools">
+            <div id="categories" class="chips"></div>
+            <div class="field">
+              <label class="field-label" for="search">Buscar canción</label>
+              <div class="search">
+                <span class="ico ico-search" aria-hidden="true"></span>
+                <input id="search" class="input" type="search" placeholder="Filtrar lista..." autocomplete="off">
+              </div>
             </div>
           </div>
-          <nav class="pagination is-flex is-align-items-center mb-3" aria-label="Paginación canciones">
-            <button id="prev-page" class="button" type="button" disabled>Anterior</button>
-            <button id="next-page" class="button ml-2" type="button" disabled>Siguiente</button>
-            <span id="page-info" class="ml-4"></span>
-          </nav>
-          <div id="song-list" class="box">
-            <table class="table is-fullwidth is-striped">
-              <thead>
-                <tr><th>Canción</th><th></th></tr>
-              </thead>
-              <tbody></tbody>
+          <div id="song-list">
+            <table class="songs">
+              <tbody>
+                <tr><td colspan="2"><div class="skeleton"></div></td></tr>
+                <tr><td colspan="2"><div class="skeleton"></div></td></tr>
+                <tr><td colspan="2"><div class="skeleton"></div></td></tr>
+              </tbody>
             </table>
           </div>
+          <nav class="pager" aria-label="Paginación canciones">
+            <button id="prev-page" class="btn btn-quiet" type="button" disabled>Anterior</button>
+            <span id="page-info" class="meta"></span>
+            <button id="next-page" class="btn btn-quiet" type="button" disabled>Siguiente</button>
+          </nav>
         </div>
+      </section>
 
-        <div class="column is-half">
-          <h2 class="subtitle header-title">🎶 Cola de reproducción</h2>
-          <div id="queue-banner" class="notification is-info is-light is-hidden"></div>
-          <p id="queue-counter" class="mb-2"></p>
-          <div id="queue" class="box"></div>
+      <section class="col-queue" aria-labelledby="queue-title">
+        <h2 id="queue-title" class="panel-title">Cola de reproducción</h2>
+        <div id="now-playing"></div>
+        <div id="queue-banner" class="callout is-hidden"></div>
+        <div class="panel panel-queue">
+          <p id="queue-counter" class="meta"></p>
+          <div id="queue" class="queue-list">
+            <div class="skeleton"></div>
+            <div class="skeleton"></div>
+          </div>
           <!-- Resumen de la cola -->
-          <p id="queue-info" class="has-text-centered mt-2"></p>
+          <p id="queue-info" class="meta"></p>
         </div>
-      </div>
-    </div>
-  </section>
+      </section>
+    </main>
+  </div>
 {% endblock %}
 
 {% block scripts %}
   <script src="{{ url_for('static', filename='userlogic.js') }}"></script>
+  <script src="{{ url_for('static', filename='nowplaying.js') }}"></script>
   <script src="{{ url_for('static', filename='library.js') }}"></script>
   <script src="{{ url_for('static', filename='main.js') }}"></script>
 {% endblock %}

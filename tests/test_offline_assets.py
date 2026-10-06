@@ -14,6 +14,7 @@ OFFLINE_FILES = sorted(
         "static/userlogic.js",
         "static/adminlogic.js",
         "static/library.js",
+        "static/nowplaying.js",
         "static/main.js",
         "static/admin.js",
     ]
@@ -35,19 +36,50 @@ def test_offline_files_reference_no_remote_urls():
         assert "http://" not in text and "https://" not in text, rel
 
 
+ICONS = (
+    "skip-forward-fill",
+    "x-bold",
+    "upload-simple-bold",
+    "magnifying-glass-bold",
+    "plus-bold",
+    "dots-six-vertical-bold",
+    "music-notes-fill",
+)
+
+
 def test_vendored_assets_exist():
-    for p in ("static/vendor/bulma.min.css", "static/vendor/lobster.woff2"):
+    for p in ("static/vendor/lobster.woff2", "static/vendor/outfit.woff2"):
         assert (ROOT / p).stat().st_size > 1000, p
-    assert (ROOT / "static/vendor/lobster.woff2").read_bytes()[:4] == b"wOF2"
+        assert (ROOT / p).read_bytes()[:4] == b"wOF2", p
+    for name in ICONS:
+        svg = (ROOT / f"static/vendor/icons/{name}.svg").read_text(encoding="utf-8")
+        assert svg.lstrip().startswith("<svg") and "currentColor" in svg, name
+
+
+def test_every_icon_used_in_css_is_vendored():
+    css = (ROOT / "static/style.css").read_text(encoding="utf-8")
+    used = set(re.findall(r'vendor/icons/([a-z-]+)\.svg', css))
+    assert used and used <= set(ICONS)
+
+
+def test_ui_text_has_no_emoji_or_dash_separators():
+    # The design rules ban emoji and em/en dashes in visible text (hyphen only).
+    banned = re.compile("[–—🌀-🫿☀-➿]")
+    for rel in OFFLINE_FILES:
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        assert not banned.search(text), rel
 
 
 def test_static_assets_are_served(phone_a):
     for url in (
-        "/static/vendor/bulma.min.css",
         "/static/style.css",
         "/static/format.js",
         "/static/common.js",
+        "/static/nowplaying.js",
+        "/static/favicon.svg",
         "/static/vendor/lobster.woff2",
+        "/static/vendor/outfit.woff2",
+        "/static/vendor/icons/skip-forward-fill.svg",
     ):
         r = phone_a.get(url)
         assert r.status_code == 200, url
@@ -67,7 +99,7 @@ def test_base_template_renders_with_local_assets_only(app):
         html = render_template_string(tpl)
     assert '<html lang="es">' in html
     assert "<p>hola</p>" in html
-    assert "/static/vendor/bulma.min.css" in html
+    assert "/static/favicon.svg" in html
     assert "/static/style.css" in html
     assert "/static/format.js" in html
     assert "/static/common.js" in html

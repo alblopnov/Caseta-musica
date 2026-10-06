@@ -11,6 +11,8 @@
   var stateSeq = 0; // responses older than the last applied one are dropped
   var appliedSeq = 0;
   var queueSig = null; // last rendered queue, to skip identical re-renders
+  var introPlayed = false;
+  var skipPending = false;
   var renderedQueue = []; // queue items as drawn: drop positions are computed on these
   var dragging = null; // id of the queued row being dragged; freezes the queue DOM
 
@@ -25,6 +27,10 @@
   var skipBtn = document.getElementById("skip-btn");
   var queueBox = document.getElementById("queue");
   var summaryBox = document.getElementById("queue-info");
+
+  // The skip button lives in the template (so it has an id) and is moved into the player card.
+  var player = NowPlaying.create({ controls: [skipBtn] });
+  document.getElementById("now-playing").appendChild(player.node);
 
   // Library / add panel shared with the user page (library.js).
   var panel = LibraryPanel.create({
@@ -115,35 +121,28 @@
     );
   }
 
-  function removeButton(item) {
+  function removeButton(item, onPlayer) {
     return el("button", {
-      class: "button is-danger is-light ml-2",
+      class: onPlayer ? "btn btn-light" : "btn btn-text",
       type: "button",
       onclick: function (ev) {
         ev.currentTarget.disabled = true;
         removeItem(item.id);
       },
-    }, "Eliminar");
+    }, el("span", { class: "ico ico-x", "aria-hidden": "true" }), "Eliminar");
   }
 
-  function playingRow(np) {
-    return el("div", { class: "py-2" },
-      el("div", { class: "is-flex is-align-items-center is-justify-content-space-between" },
-        el("div", { class: "mr-2", style: "min-width:0;overflow-wrap:anywhere" },
-          el("span", { class: "tag is-success mr-2" }, "Sonando"),
-          el("strong", null, np.title)),
-        el("div", { class: "is-flex is-align-items-center is-flex-shrink-0" }, removeButton(np))),
-      el("progress", { class: "progress is-success is-small mt-2 mb-0", value: Math.round(UserLogic.clampElapsed(np)), max: Math.round(Number(np.duration) || 0) || 1 }));
-  }
-
-  function queueRow(item, etaText, state) {
+  function queueRow(item, etaText, state, index) {
     var props = {
-      class: "queue-row is-flex is-align-items-center is-justify-content-space-between py-2",
+      class: "q-row",
+      style: "--i:" + index,
       dataset: { queueId: item.id },
     };
     var handle = null;
     if (AdminLogic.isDraggable(item, state)) {
-      handle = el("span", { class: "drag-handle mr-2", title: "Arrastra para reordenar", "aria-label": "Arrastrar para reordenar" }, "⠿");
+      handle = el("span", { class: "drag-handle", title: "Arrastra para reordenar", "aria-label": "Arrastrar para reordenar" },
+        el("span", { class: "ico ico-grip", "aria-hidden": "true" }));
+      props.class += " has-handle";
       props.draggable = "true";
       // Mouse: HTML5 drag and drop on the whole row.
       props.ondragstart = function (ev) {
@@ -171,12 +170,12 @@
       props.ondragend = function () { finishDrag(null); };
     }
     var row = el("div", props,
-      el("div", { class: "is-flex is-align-items-center mr-2", style: "min-width:0" },
-        handle,
-        el("div", { style: "min-width:0;overflow-wrap:anywhere" },
-          el("div", null, item.title),
-          el("small", { class: "has-text-grey" }, etaText))),
-      el("div", { class: "is-flex is-align-items-center is-flex-shrink-0" }, removeButton(item)));
+      handle,
+      el("span", { class: "q-pos", "aria-hidden": "true" }, String(index + 1)),
+      el("div", { class: "q-main" },
+        el("div", { class: "q-title" }, item.title),
+        el("div", { class: "q-meta" }, "Suena en " + etaText)),
+      el("div", { class: "q-actions" }, removeButton(item, false)));
     if (handle) addTouchDrag(row, item.id);
     return row;
   }
@@ -207,30 +206,40 @@
     row.addEventListener("touchcancel", function () { finishDrag(null); });
   }
 
+  function emptyState(playing) {
+    return el("div", { class: "empty" },
+      el("span", { class: "ico ico-notes", "aria-hidden": "true" }),
+      el("strong", null, playing ? "No hay más canciones en la cola" : "La cola está vacía"),
+      el("span", null, "Añade canciones desde la lista."));
+  }
+
   function renderQueue(state) {
     var np = state.now_playing || null;
     var queue = Array.isArray(state.queue) ? state.queue : [];
 
     summaryBox.textContent = UserLogic.summaryLine(state);
 
+    // The player card updates itself (and keeps its own bar ticking).
+    player.update(np, function (playing) { return [removeButton(playing, true)]; });
+    if (!skipPending) skipBtn.disabled = !np;
+
     var etas = queue.map(function (item) { return Format.formatEta(item.eta_seconds); });
     var sig = JSON.stringify([
-      np && [np.id, np.title],
+      !!np,
       queue.map(function (item, i) { return [item.id, item.title, etas[i]]; }),
     ]);
-    if (sig === queueSig) {
-      var bar = queueBox.querySelector("progress");
-      if (bar && np) bar.value = Math.round(UserLogic.clampElapsed(np));
-      return;
-    }
+    if (sig === queueSig) return;
     queueSig = sig;
     renderedQueue = queue;
 
-    var rows = [];
-    if (np) rows.push(playingRow(np));
-    queue.forEach(function (item, i) { rows.push(queueRow(item, etas[i], state)); });
-    if (rows.length === 0) rows.push(el("p", { class: "has-text-grey has-text-centered" }, "La cola está vacía."));
+    var rows = queue.map(function (item, i) { return queueRow(item, etas[i], state, i); });
+    if (rows.length === 0) rows.push(emptyState(!!np));
     replaceChildren(queueBox, rows);
+    if (!introPlayed) {
+      introPlayed = true;
+      queueBox.classList.add("is-intro"); // rows rise in once, on the first draw
+      setTimeout(function () { queueBox.classList.remove("is-intro"); }, 1200);
+    }
   }
 
   // -- drag and drop ------------------------------------------------------------
@@ -285,6 +294,7 @@
   skipBtn.addEventListener("click", function () {
     if (skipBtn.disabled) return;
     skipBtn.disabled = true;
+    skipPending = true;
     Common.api("POST", "/api/skip").then(
       function () { return safeRefresh(); },
       function (err) {
@@ -292,7 +302,8 @@
         return safeRefresh();
       }
     ).then(function () {
-      skipBtn.disabled = false;
+      skipPending = false;
+      skipBtn.disabled = !(lastState && lastState.now_playing);
     });
   });
 

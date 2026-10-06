@@ -35,10 +35,11 @@ var LibraryPanel = (function () {
       replaceChildren(
         categoriesBox,
         names.map(function (name) {
-          var kind = name === selectedCategory ? "is-primary" : name === "Todas" ? "is-white" : "is-light";
+          var active = name === selectedCategory;
           return el("button", {
-            class: "button " + kind,
+            class: "chip" + (active ? " is-active" : ""),
             type: "button",
+            "aria-pressed": active ? "true" : "false",
             onclick: function () {
               selectedCategory = name;
               currentPage = 1;
@@ -62,18 +63,18 @@ var LibraryPanel = (function () {
     function songRow(song) {
       var inQueue = UserLogic.isInQueue(song, opts.getState());
       var button = inQueue
-        ? el("button", { class: "button", type: "button", disabled: true }, "En la cola")
+        ? el("button", { class: "btn btn-done", type: "button", disabled: true }, "En la cola")
         : el("button", {
-            class: "button is-primary",
+            class: "btn btn-primary",
             type: "button",
             onclick: function (ev) {
               ev.currentTarget.disabled = true;
               addSong(song);
             },
-          }, "Añadir");
+          }, el("span", { class: "ico ico-plus", "aria-hidden": "true" }), "Añadir");
       return el("tr", null,
-        el("td", { class: "is-vcentered" }, UserLogic.songTitle(song)),
-        el("td", { class: "has-text-right" }, button));
+        el("td", null, UserLogic.songTitle(song)),
+        el("td", null, button));
     }
 
     function renderSongs(force) {
@@ -99,7 +100,7 @@ var LibraryPanel = (function () {
       pageInfo.textContent = "Página " + page.page + " de " + page.totalPages;
       if (page.items.length === 0) {
         replaceChildren(songBody, [
-          el("tr", null, el("td", { colspan: 2, class: "has-text-grey" },
+          el("tr", null, el("td", { colspan: 2, class: "row-empty" },
             allSongs.length === 0 ? "No hay canciones todavía." : "No hay canciones que coincidan.")),
         ]);
       } else {

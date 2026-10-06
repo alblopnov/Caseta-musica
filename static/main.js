@@ -20,6 +20,10 @@
   var uploadEnqueue = document.getElementById("upload-enqueue");
 
   var queueSig = null;
+  var introPlayed = false;
+
+  var player = NowPlaying.create();
+  document.getElementById("now-playing").appendChild(player.node);
 
   // Library / add panel shared with the admin page (library.js).
   var panel = LibraryPanel.create({
@@ -49,37 +53,36 @@
     );
   }
 
-  function ownerControls(item) {
+  // Owner tag and remove button. `onPlayer` uses the light style for the red card.
+  function ownerControls(item, onPlayer) {
     if (!item.mine) return null;
     return [
-      el("span", { class: "tag is-warning ml-2" }, "Tuya"),
+      el("span", { class: "tag" }, "Tuya"),
       el("button", {
-        class: "button is-danger is-light ml-2",
+        class: onPlayer ? "btn btn-light" : "btn btn-text",
         type: "button",
         onclick: function (ev) {
           ev.currentTarget.disabled = true;
           removeItem(item.id);
         },
-      }, "Quitar"),
+      }, el("span", { class: "ico ico-x", "aria-hidden": "true" }), "Quitar"),
     ];
   }
 
-  function queueRow(item, etaText) {
-    return el("div", { class: "is-flex is-align-items-center is-justify-content-space-between py-2" },
-      el("div", { class: "mr-2", style: "min-width:0;overflow-wrap:anywhere" },
-        el("div", null, item.title),
-        el("small", { class: "has-text-grey" }, etaText)),
-      el("div", { class: "is-flex is-align-items-center is-flex-shrink-0" }, ownerControls(item)));
+  function queueRow(item, etaText, index) {
+    return el("div", { class: "q-row" + (item.mine ? " is-mine" : ""), style: "--i:" + index },
+      el("span", { class: "q-pos", "aria-hidden": "true" }, String(index + 1)),
+      el("div", { class: "q-main" },
+        el("div", { class: "q-title" }, item.title),
+        el("div", { class: "q-meta" }, "Suena en " + etaText)),
+      el("div", { class: "q-actions" }, ownerControls(item, false)));
   }
 
-  function playingRow(np) {
-    return el("div", { class: "py-2" },
-      el("div", { class: "is-flex is-align-items-center is-justify-content-space-between" },
-        el("div", { class: "mr-2", style: "min-width:0;overflow-wrap:anywhere" },
-          el("span", { class: "tag is-success mr-2" }, "Sonando"),
-          el("strong", null, np.title)),
-        el("div", { class: "is-flex is-align-items-center is-flex-shrink-0" }, ownerControls(np))),
-      el("progress", { class: "progress is-success is-small mt-2 mb-0", value: Math.round(UserLogic.clampElapsed(np)), max: Math.round(Number(np.duration) || 0) || 1 }));
+  function emptyState(playing) {
+    return el("div", { class: "empty" },
+      el("span", { class: "ico ico-notes", "aria-hidden": "true" }),
+      el("strong", null, playing ? "No hay más canciones en la cola" : "La cola está vacía"),
+      el("span", null, "Elige una canción de la lista para añadirla."));
   }
 
   function renderQueue(state) {
@@ -92,23 +95,25 @@
     counterBox.textContent = UserLogic.counterText(state);
     summaryBox.textContent = UserLogic.summaryLine(state);
 
+    // The player card updates itself (and keeps its own bar ticking).
+    player.update(np, function (playing) { return ownerControls(playing, true); });
+
     var etas = queue.map(function (item) { return Format.formatEta(item.eta_seconds); });
     var sig = JSON.stringify([
-      np && [np.id, np.title, np.mine],
+      !!np,
       queue.map(function (item, i) { return [item.id, item.title, item.mine, etas[i]]; }),
     ]);
-    if (sig === queueSig) {
-      var bar = queueBox.querySelector("progress");
-      if (bar && np) bar.value = Math.round(UserLogic.clampElapsed(np));
-      return;
-    }
+    if (sig === queueSig) return;
     queueSig = sig;
 
-    var rows = [];
-    if (np) rows.push(playingRow(np));
-    queue.forEach(function (item, i) { rows.push(queueRow(item, etas[i])); });
-    if (rows.length === 0) rows.push(el("p", { class: "has-text-grey has-text-centered" }, "La cola está vacía."));
+    var rows = queue.map(function (item, i) { return queueRow(item, etas[i], i); });
+    if (rows.length === 0) rows.push(emptyState(!!np));
     replaceChildren(queueBox, rows);
+    if (!introPlayed) {
+      introPlayed = true;
+      queueBox.classList.add("is-intro"); // rows rise in once, on the first draw
+      setTimeout(function () { queueBox.classList.remove("is-intro"); }, 1200);
+    }
   }
 
   // -- state / polling -------------------------------------------------------

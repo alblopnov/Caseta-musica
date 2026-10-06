@@ -1,79 +1,93 @@
 {% extends "base.html" %}
 
-{% block title %}Admin - Los Bala Perdia 🎡{% endblock %}
+{% block title %}Admin - Los Bala Perdia{% endblock %}
 
 {% block body %}
-  <section class="section">
-    <div class="container">
-      <h1 class="title has-text-centered header-title">
-        🏮 Admin – Los Bala Perdia 🔴
-      </h1>
-
-      <div id="offline-notice" class="notification is-danger is-hidden" role="alert">
-        Sin conexión con la caseta
+  <div class="page">
+    <header class="masthead">
+      <span class="mark" aria-hidden="true"></span>
+      <h1 class="wordmark">Los Bala Perdia <small>Administración</small></h1>
+      <div class="masthead-actions">
+        <a href="/" class="btn btn-quiet">Volver a Usuario</a>
       </div>
+    </header>
 
-      <!-- Formulario de PIN: lo único que se ve hasta entrar como administrador -->
-      <div id="login-section" class="columns is-centered is-hidden">
-        <div class="column is-one-third">
-          <form id="pin-form" class="box" autocomplete="off">
-            <div class="field">
-              <label class="label" for="pin-input">PIN de administrador</label>
-              <div class="control">
-                <input id="pin-input" class="input" type="password" inputmode="numeric" autocomplete="off" required>
-              </div>
-              <p id="pin-error" class="help is-danger" role="alert"></p>
-            </div>
-            <button id="pin-btn" class="button is-link is-fullwidth" type="submit">Entrar</button>
-          </form>
+    <div id="offline-notice" class="notice notice-danger is-hidden" role="alert">
+      Sin conexión con la caseta
+    </div>
+
+    <!-- Formulario de PIN: lo único que se ve hasta entrar como administrador -->
+    <div id="login-section" class="login is-hidden">
+      <form id="pin-form" class="panel" autocomplete="off">
+        <div class="field">
+          <label class="field-label" for="pin-input">PIN de administrador</label>
+          <input id="pin-input" class="input" type="password" inputmode="numeric" autocomplete="off" required>
+          <p id="pin-error" class="help is-danger" role="alert"></p>
         </div>
-      </div>
+        <button id="pin-btn" class="btn btn-primary" type="submit">Entrar</button>
+      </form>
+    </div>
 
-      <div id="admin-section" class="is-hidden">
-        <div id="audio-notice" class="notification is-warning is-hidden" role="status"></div>
-        <div class="columns">
-          <div class="column is-half">
-            <div id="categories" class="buttons mb-4"></div>
-            <div class="field">
-              <label class="label" for="search">Buscar canción</label>
-              <div class="control">
-                <input id="search" class="input" type="search" placeholder="Filtrar lista..." autocomplete="off">
+    <div id="admin-section" class="is-hidden">
+      <div id="audio-notice" class="notice notice-warn is-hidden" role="status"></div>
+
+      <main class="shell">
+        <section class="col-library" aria-labelledby="library-title">
+          <h2 id="library-title" class="panel-title">Canciones</h2>
+          <div class="panel">
+            <div class="library-tools">
+              <div id="categories" class="chips"></div>
+              <div class="field">
+                <label class="field-label" for="search">Buscar canción</label>
+                <div class="search">
+                  <span class="ico ico-search" aria-hidden="true"></span>
+                  <input id="search" class="input" type="search" placeholder="Filtrar lista..." autocomplete="off">
+                </div>
               </div>
             </div>
-            <nav class="pagination is-flex is-align-items-center mb-3" aria-label="Paginación canciones">
-              <button id="prev-page" class="button" type="button" disabled>Anterior</button>
-              <button id="next-page" class="button ml-2" type="button" disabled>Siguiente</button>
-              <span id="page-info" class="ml-4"></span>
-            </nav>
-            <div id="song-list" class="box">
-              <table class="table is-fullwidth is-striped">
-                <thead>
-                  <tr><th>Canción</th><th></th></tr>
-                </thead>
-                <tbody></tbody>
+            <div id="song-list">
+              <table class="songs">
+                <tbody>
+                  <tr><td colspan="2"><div class="skeleton"></div></td></tr>
+                  <tr><td colspan="2"><div class="skeleton"></div></td></tr>
+                  <tr><td colspan="2"><div class="skeleton"></div></td></tr>
+                </tbody>
               </table>
             </div>
+            <nav class="pager" aria-label="Paginación canciones">
+              <button id="prev-page" class="btn btn-quiet" type="button" disabled>Anterior</button>
+              <span id="page-info" class="meta"></span>
+              <button id="next-page" class="btn btn-quiet" type="button" disabled>Siguiente</button>
+            </nav>
           </div>
+        </section>
 
-          <div class="column is-half">
-            <h2 class="subtitle header-title">🎶 Cola de reproducción</h2>
-            <button id="skip-btn" class="button is-warning mb-3" type="button">Saltar canción</button>
-            <div id="queue" class="box"></div>
+        <section class="col-queue" aria-labelledby="queue-title">
+          <h2 id="queue-title" class="panel-title">Cola de reproducción</h2>
+          <div id="now-playing"></div>
+          <div class="panel panel-queue">
+            <div id="queue" class="queue-list">
+              <div class="skeleton"></div>
+              <div class="skeleton"></div>
+            </div>
             <!-- Resumen de la cola -->
-            <p id="queue-info" class="has-text-centered mt-2"></p>
+            <p id="queue-info" class="meta"></p>
           </div>
-        </div>
-        <p class="has-text-right">
-          <a href="/" class="button is-light">Volver a Usuario</a>
-        </p>
-      </div>
+        </section>
+      </main>
+
+      <!-- Se coloca dentro de la tarjeta de reproducción (admin.js) -->
+      <button id="skip-btn" class="btn btn-skip" type="button">
+        <span class="ico ico-skip" aria-hidden="true"></span>Saltar canción
+      </button>
     </div>
-  </section>
+  </div>
 {% endblock %}
 
 {% block scripts %}
   <script src="{{ url_for('static', filename='userlogic.js') }}"></script>
   <script src="{{ url_for('static', filename='adminlogic.js') }}"></script>
+  <script src="{{ url_for('static', filename='nowplaying.js') }}"></script>
   <script src="{{ url_for('static', filename='library.js') }}"></script>
   <script src="{{ url_for('static', filename='admin.js') }}"></script>
 {% endblock %}

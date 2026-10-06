@@ -30,6 +30,7 @@ def test_user_page_renders_with_local_assets(phone_a):
         "prev-page",
         "next-page",
         "page-info",
+        "now-playing",
         "queue",
         "queue-banner",
         "queue-counter",
@@ -76,7 +77,7 @@ def test_admin_page_renders_with_local_assets(phone_a):
     assert ids, "admin.js should look elements up by id"
     for element_id in ids:
         assert f'id="{element_id}"' in html, element_id
-    for element_id in ("pin-form", "pin-input", "pin-error", "skip-btn", "queue", "offline-notice", "audio-notice"):
+    for element_id in ("pin-form", "pin-input", "pin-error", "skip-btn", "now-playing", "queue", "offline-notice", "audio-notice"):
         assert f'id="{element_id}"' in html, element_id
     assert "Entrar" in html and "Saltar canción" in html
     assert re.search(r'href="/"[^>]*>\s*Volver a Usuario', html)
@@ -84,3 +85,12 @@ def test_admin_page_renders_with_local_assets(phone_a):
     assert "cdn.jsdelivr" not in html
     assert not re.search(r"(src|href)\s*=\s*[\"']\s*(https?:)?//", html, re.I)
     assert "http://" not in html and "https://" not in html
+
+
+def test_player_card_script_loads_before_the_page_scripts(phone_a):
+    user = phone_a.get("/").get_data(as_text=True)
+    assert user.index("/static/userlogic.js") < user.index("/static/nowplaying.js") < user.index("/static/main.js")
+    admin = phone_a.get("/albertitoeselmejor").get_data(as_text=True)
+    assert admin.index("/static/userlogic.js") < admin.index("/static/nowplaying.js") < admin.index("/static/admin.js")
+    for html in (user, admin):
+        assert 'id="now-playing"' in html

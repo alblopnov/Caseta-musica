@@ -30,7 +30,17 @@ var Format = (function () {
     return n + " " + noun + " en la cola | Quedan " + formatEta(totalSeconds);
   }
 
-  return { formatEta: formatEta, formatSummary: formatSummary };
+  // Player clock: "0:05", "3:41", "1:02:05". Floors so it never runs past the song.
+  function formatClock(seconds) {
+    var s = Math.floor(toSeconds(seconds));
+    var hours = Math.floor(s / 3600);
+    var minutes = Math.floor((s % 3600) / 60);
+    var rest = s % 60;
+    if (hours > 0) return hours + ":" + pad2(minutes) + ":" + pad2(rest);
+    return minutes + ":" + pad2(rest);
+  }
+
+  return { formatEta: formatEta, formatSummary: formatSummary, formatClock: formatClock };
 })();
 
 if (typeof module !== "undefined" && module.exports) {

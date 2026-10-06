@@ -3,15 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Los Bala Perdia 🎡{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bulma.min.css') }}">
+  <meta name="theme-color" content="#b3262b">
+  <title>{% block title %}Los Bala Perdia{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  <div class="circle circle1"></div>
-  <div class="circle circle2"></div>
-  <div class="circle circle3"></div>
-
   {% block body %}{% endblock %}
 
   <script src="{{ url_for('static', filename='format.js') }}"></script>
