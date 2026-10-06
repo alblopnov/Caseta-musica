@@ -2,20 +2,32 @@
 from __future__ import annotations
 
 import logging
+import random
 import threading
 import time
 from typing import Callable
 
-from caseta.song_queue import NotOwner, QueueItem, SongQueue
+from caseta.song_queue import NotOwner, QueueFull, QueueItem, SongQueue
 from caseta.library import Library
 from caseta.player import Player, PlayerUnavailable
 
 log = logging.getLogger(__name__)
 
 
+class EmptyCategory(Exception):
+    """Shuffle asked for a section that has no songs (or does not exist)."""
+
+
+class NothingToShuffle(Exception):
+    """Every song in the section is already waiting or playing."""
+
+
 class PlaybackEngine:
     # After PlayerUnavailable, wait this long before trying the audio output again.
     AUDIO_RETRY_SECONDS = 5.0
+    # Songs added by one press of "Aleatorio" (fewer when the phone has less room).
+    SHUFFLE_COUNT = 5
+    ALL_SECTIONS = "Todas"
 
     def __init__(
         self,
@@ -25,6 +37,7 @@ class PlaybackEngine:
         clock: Callable[[], float] = time.monotonic,
         poll_interval: float = 0.25,
         audio_retry_seconds: float | None = None,
+        rng: random.Random | None = None,
     ):
         self._queue = queue
         self._player = player
@@ -34,6 +47,7 @@ class PlaybackEngine:
         self._audio_retry_seconds = (
             self.AUDIO_RETRY_SECONDS if audio_retry_seconds is None else audio_retry_seconds
         )
+        self._rng = rng if rng is not None else random.Random()
         self._audio_down = False  # a PlayerUnavailable is outstanding
         self._audio_retry_at = 0.0
         self._lock = threading.RLock()
@@ -120,10 +134,38 @@ class PlaybackEngine:
 
     # -- commands ----------------------------------------------------------
 
-    def enqueue(self, song: str, owner: str) -> QueueItem:
+    def enqueue(self, song: str, owner: str, is_admin: bool = False) -> QueueItem:
         with self._lock:
             self._library.resolve(song)  # raises SongNotFound before the queue is touched
-            return self._queue.add(song, owner)
+            return self._queue.add(song, owner, is_admin)
+
+    def shuffle(self, category: str, owner: str, is_admin: bool = False) -> list[QueueItem]:
+        """Add random songs from one section ("Todas" = the whole library) to the end.
+
+        Songs already waiting or playing are never picked. A phone gets at most
+        SHUFFLE_COUNT songs and never more than its free slots; the admin has no
+        cap. Raises EmptyCategory, QueueFull (no free slot) or NothingToShuffle."""
+        with self._lock:
+            if category == self.ALL_SECTIONS:
+                pool = self._library.list_songs()
+            else:
+                prefix = category + "/"
+                pool = [s for s in self._library.list_songs() if category and s.startswith(prefix)]
+            if not pool:
+                raise EmptyCategory(category)
+            taken = {item.song for item in self._queue.snapshot()}
+            if self._current is not None:
+                taken.add(self._current.song)
+            candidates = [s for s in pool if s not in taken]
+            if not candidates:
+                raise NothingToShuffle(category)
+            room = self.SHUFFLE_COUNT
+            if not is_admin:
+                room = min(room, self._queue.max_pending_per_user - self._queue.pending_count(owner))
+            if room <= 0:
+                raise QueueFull(owner)
+            picks = self._rng.sample(candidates, min(room, len(candidates)))
+            return [self._queue.add(song, owner, is_admin) for song in picks]
 
     def remove(self, item_id: str, requester: str, is_admin: bool = False) -> None:
         with self._lock:
@@ -146,7 +188,7 @@ class PlaybackEngine:
 
     # -- state -------------------------------------------------------------
 
-    def snapshot(self, viewer: str) -> dict:
+    def snapshot(self, viewer: str, is_admin: bool = False) -> dict:
         with self._lock:
             lib = self._library
             now_playing = None
@@ -183,7 +225,7 @@ class PlaybackEngine:
                 "total_seconds": eta,
                 "me": {
                     "pending": self._queue.pending_count(viewer),
-                    "max": self._queue.max_pending_per_user,
+                    "max": None if is_admin else self._queue.max_pending_per_user,  # None = no limit
                 },
                 "audio_ok": not self._audio_down,
             }

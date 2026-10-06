@@ -1,4 +1,4 @@
-"""HTTP API for the fair shared queue. Every API error is ``{"error", "code"}`` JSON."""
+"""HTTP API for the shared song queue. Every API error is ``{"error", "code"}`` JSON."""
 from __future__ import annotations
 
 import re
@@ -6,6 +6,7 @@ import re
 from flask import Blueprint, current_app, g, jsonify, render_template, request
 from werkzeug.exceptions import HTTPException
 
+from caseta.engine import EmptyCategory, NothingToShuffle
 from caseta.song_queue import DuplicateSong, NotOwner, QueueFull, UnknownItem
 from caseta.identity import is_admin, set_admin
 from caseta.library import InvalidUpload, SongNotFound
@@ -34,6 +35,10 @@ def _domain_error(exc: Exception) -> ApiError | None:
         return ApiError(404, "not_found", "Esa canción no existe.")
     if isinstance(exc, UnknownItem):
         return ApiError(404, "not_found", "Esa canción ya no está en la cola.")
+    if isinstance(exc, EmptyCategory):
+        return ApiError(404, "not_found", "No hay canciones en esa sección.")
+    if isinstance(exc, NothingToShuffle):
+        return ApiError(409, "nothing_to_add", "Ya están en la cola todas las canciones de esta sección.")
     if isinstance(exc, DuplicateSong):
         return ApiError(409, "duplicate", "Esa canción ya está en la cola.")
     if isinstance(exc, QueueFull):
@@ -56,7 +61,7 @@ def _register_domain_handlers(app) -> None:
         err = _domain_error(exc)
         return error_response(err.status, err.code, err.message, **err.extra)
 
-    for cls in (SongNotFound, UnknownItem, DuplicateSong, QueueFull, NotOwner, InvalidUpload):
+    for cls in (SongNotFound, UnknownItem, EmptyCategory, NothingToShuffle, DuplicateSong, QueueFull, NotOwner, InvalidUpload):
         app.register_error_handler(cls, handler)
 
 
@@ -113,7 +118,7 @@ def songs():
 
 @bp.get("/api/state")
 def state():
-    return jsonify(_engine().snapshot(g.client_id))
+    return jsonify(_engine().snapshot(g.client_id, is_admin()))
 
 
 @bp.post("/api/queue")
@@ -121,8 +126,17 @@ def enqueue():
     song = json_object().get("song")  # any "position" field is deliberately ignored
     if not isinstance(song, str):
         raise ApiError(400, "bad_request", "Falta el nombre de la canción.")
-    item = _engine().enqueue(song, g.client_id)
+    item = _engine().enqueue(song, g.client_id, is_admin())  # the admin has no per-phone cap
     return jsonify(_item_json(item)), 201
+
+
+@bp.post("/api/shuffle")
+def shuffle():
+    category = json_object().get("category", "Todas")  # "Todas" = the whole library
+    if not isinstance(category, str) or not category.strip():
+        raise ApiError(400, "bad_request", "Falta la sección.")
+    items = _engine().shuffle(category, g.client_id, is_admin())
+    return jsonify({"added": [_item_json(i) for i in items], "count": len(items)}), 201
 
 
 @bp.delete("/api/queue/<item_id>")
@@ -160,7 +174,7 @@ def upload():
     item = None
     if request.form.get("enqueue", "").strip().lower() in _TRUTHY:
         try:
-            item = _engine().enqueue(song, g.client_id)
+            item = _engine().enqueue(song, g.client_id, is_admin())
         except (QueueFull, DuplicateSong) as e:
             err = _domain_error(e)  # the file stays saved; tell the client where
             return error_response(err.status, err.code, err.message, song=song)

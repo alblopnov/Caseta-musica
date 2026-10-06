@@ -29,6 +29,8 @@ var LibraryPanel = (function () {
     var nextBtn = document.getElementById("next-page");
     var pageInfo = document.getElementById("page-info");
     var categoriesBox = document.getElementById("categories");
+    var shuffleBtn = document.getElementById("shuffle-btn");
+    var shuffleHint = document.getElementById("shuffle-hint");
     var songBody = document.querySelector("#song-list tbody");
 
     function renderCategories(names) {
@@ -81,6 +83,7 @@ var LibraryPanel = (function () {
       var state = opts.getState();
       var names = UserLogic.categories(allSongs);
       if (names.indexOf(selectedCategory) === -1) selectedCategory = "Todas";
+      shuffleHint.textContent = UserLogic.shuffleHint(selectedCategory); // shuffle ignores the search box
       var filtered = UserLogic.filterSongs(allSongs, selectedCategory, searchInput.value);
       var page = UserLogic.paginate(filtered, currentPage, SONGS_PER_PAGE);
       currentPage = page.page;
@@ -131,6 +134,25 @@ var LibraryPanel = (function () {
       selectedCategory = category;
       currentPage = 1;
     }
+
+    // "Aleatorio": the server adds random songs from the selected section
+    // ("Todas" = everything) and respects the phone's cap.
+    shuffleBtn.addEventListener("click", function () {
+      if (shuffleBtn.disabled) return;
+      shuffleBtn.disabled = true;
+      Common.api("POST", "/api/shuffle", { category: selectedCategory }).then(
+        function (res) {
+          Common.toast(UserLogic.shuffleDoneMessage(res && res.count), "success");
+          return opts.refresh();
+        },
+        function (err) {
+          opts.onError(err);
+          return opts.refresh();
+        }
+      ).then(function () {
+        shuffleBtn.disabled = false;
+      });
+    });
 
     searchInput.addEventListener("input", function () {
       currentPage = 1;

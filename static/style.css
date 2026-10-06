@@ -190,6 +190,7 @@ td, th { padding: 0; text-align: left; }
 .ico-plus { --ico: url("vendor/icons/plus-bold.svg"); }
 .ico-grip { --ico: url("vendor/icons/dots-six-vertical-bold.svg"); }
 .ico-notes { --ico: url("vendor/icons/music-notes-fill.svg"); }
+.ico-shuffle { --ico: url("vendor/icons/shuffle-bold.svg"); }
 
 /* ---- buttons, chips, tags ------------------------------------------------- */
 
@@ -302,6 +303,8 @@ input[type="file"]::file-selector-button {
 /* ---- library -------------------------------------------------------------- */
 
 .library-tools { display: grid; gap: 0.9rem; margin-bottom: 0.6rem; }
+.shuffle-row { display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; }
+.shuffle-row .meta { flex: 1 1 10rem; min-width: 0; }
 
 .songs td { padding: 0.35rem 0; vertical-align: middle; }
 .songs td:first-child { padding-right: 0.75rem; overflow-wrap: anywhere; font-weight: 500; }

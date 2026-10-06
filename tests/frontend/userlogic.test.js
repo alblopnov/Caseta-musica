@@ -171,3 +171,33 @@ test("audioNotice: shown only when the server says audio is down", () => {
   assert.equal(UserLogic.audioNotice(null), null);
   assert.equal(UserLogic.audioNotice(state({ audio_ok: "false" })), null);
 });
+
+test("shuffleHint names the section that will be shuffled", () => {
+  assert.equal(UserLogic.shuffleHint("Todas"), "Añade canciones al azar de toda la biblioteca");
+  assert.equal(UserLogic.shuffleHint(undefined), "Añade canciones al azar de toda la biblioteca");
+  assert.equal(UserLogic.shuffleHint("Flamenquito"), "Añade canciones al azar de Flamenquito");
+});
+
+test("shuffleDoneMessage", () => {
+  assert.equal(UserLogic.shuffleDoneMessage(1), "Añadida 1 canción al azar");
+  assert.equal(UserLogic.shuffleDoneMessage(5), "Añadidas 5 canciones al azar");
+  assert.equal(UserLogic.shuffleDoneMessage(undefined), "Añadidas 0 canciones al azar");
+});
+
+test("conflictMessage for a shuffle where everything is already queued", () => {
+  assert.equal(
+    UserLogic.conflictMessage({ code: "nothing_to_add" }, null),
+    "Ya están en la cola todas las canciones de esta sección."
+  );
+});
+
+test("counterText has no cap for the admin (max is null)", () => {
+  assert.equal(
+    UserLogic.counterText({ me: { pending: 7, max: null } }),
+    "Tienes 7 canciones en la cola (sin límite)"
+  );
+  assert.equal(
+    UserLogic.counterText({ me: { pending: 1, max: null } }),
+    "Tienes 1 canción en la cola (sin límite)"
+  );
+});

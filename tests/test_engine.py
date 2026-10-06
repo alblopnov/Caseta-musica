@@ -1,8 +1,9 @@
+import random
 import time
 
 import pytest
 
-from caseta.engine import PlaybackEngine
+from caseta.engine import EmptyCategory, NothingToShuffle, PlaybackEngine
 from caseta.song_queue import DuplicateSong, NotOwner, QueueFull, SongQueue, UnknownItem
 from caseta.library import SongNotFound
 from tests.conftest import make_wav
@@ -525,3 +526,121 @@ def test_pygame_player_imports_and_constructs_without_audio_device():
 
     p = PygamePlayer()
     assert p.is_playing() is False
+
+
+# -- admin is not limited by the cap -------------------------------------------
+
+
+def test_admin_enqueue_ignores_the_per_phone_cap(engine, songs):
+    for name in ("a1.wav", "a2.wav", "a3.wav", "b1.wav", "d.wav"):
+        engine.enqueue(name, "ADMIN")
+    with pytest.raises(QueueFull):
+        engine.enqueue("e.wav", "ADMIN")
+    engine.enqueue("e.wav", "ADMIN", is_admin=True)
+    assert engine.snapshot("ADMIN")["me"]["pending"] == 6
+
+
+def test_snapshot_reports_no_limit_for_the_admin(engine):
+    assert engine.snapshot("A")["me"] == {"pending": 0, "max": 5}
+    assert engine.snapshot("A", is_admin=True)["me"] == {"pending": 0, "max": None}
+
+
+# -- shuffle ---------------------------------------------------------------------
+
+
+@pytest.fixture
+def tree(songs):
+    """Two sections next to the root songs the `songs` fixture already made."""
+    for name in ("r1", "r2", "r3", "r4", "r5", "r6", "r7"):
+        make_wav(songs / "Rock" / f"{name}.wav", 1)
+    for name in ("p1", "p2"):
+        make_wav(songs / "Pop" / f"{name}.wav", 1)
+    return songs
+
+
+def shuffle_engine(engine_factory, player, clock, seed=1):
+    return engine_factory(player, clock, rng=random.Random(seed))
+
+
+def test_shuffle_only_picks_songs_from_the_chosen_section(engine_factory, player, clock, tree):
+    engine = shuffle_engine(engine_factory, player, clock)
+    items = engine.shuffle("Pop", "A")
+    assert {i.song for i in items} == {"Pop/p1.wav", "Pop/p2.wav"}
+    engine = shuffle_engine(engine_factory, player, clock)
+    items = engine.shuffle("Rock", "A")
+    assert len(items) == 5
+    assert all(i.song.startswith("Rock/") for i in items)
+    assert len({i.song for i in items}) == 5  # no repeats
+
+
+def test_shuffle_todas_draws_from_the_whole_library(engine_factory, player, clock, tree, library):
+    engine = shuffle_engine(engine_factory, player, clock)
+    while True:
+        try:
+            engine.shuffle("Todas", "ADMIN", is_admin=True)
+        except NothingToShuffle:
+            break
+    queued = {i["song"] for i in engine.snapshot("ADMIN")["queue"]}
+    assert queued == set(library.list_songs())
+    assert any("/" not in s for s in queued) and any(s.startswith("Rock/") for s in queued)
+    assert any(s.startswith("Pop/") for s in queued)
+
+
+def test_shuffle_adds_at_most_five_and_never_more_than_the_free_slots(engine_factory, player, clock, tree):
+    engine = shuffle_engine(engine_factory, player, clock)
+    engine.enqueue("a1.wav", "A")
+    engine.enqueue("a2.wav", "A")
+    engine.enqueue("a3.wav", "A")
+    assert len(engine.shuffle("Rock", "A")) == 2  # cap 5, three already waiting
+    with pytest.raises(QueueFull):
+        engine.shuffle("Rock", "A")
+    assert len(engine.shuffle("Rock", "B")) == 5  # another phone has its own slots
+
+
+def test_shuffle_skips_songs_already_waiting_or_playing(engine_factory, player, clock, tree):
+    engine = shuffle_engine(engine_factory, player, clock)
+    engine.enqueue("Rock/r1.wav", "A")
+    engine.tick()  # r1 is playing now
+    engine.enqueue("Rock/r2.wav", "A")
+    items = engine.shuffle("Rock", "B")
+    assert {i.song for i in items} == {f"Rock/r{n}.wav" for n in range(3, 8)}
+
+
+def test_shuffle_with_nothing_left_in_the_section(engine_factory, player, clock, tree):
+    engine = shuffle_engine(engine_factory, player, clock)
+    engine.shuffle("Pop", "A")
+    with pytest.raises(NothingToShuffle):
+        engine.shuffle("Pop", "B")
+
+
+def test_shuffle_unknown_section_is_an_error_not_a_prefix_match(engine_factory, player, clock, tree):
+    engine = shuffle_engine(engine_factory, player, clock)
+    for bad in ("Nope", "Ro", "rock", "Rock/", "../Rock", ""):
+        with pytest.raises(EmptyCategory):
+            engine.shuffle(bad, "A")
+
+
+def test_shuffle_admin_is_not_limited_by_the_cap(engine_factory, player, clock, tree):
+    engine = shuffle_engine(engine_factory, player, clock)
+    assert len(engine.shuffle("Rock", "ADMIN", is_admin=True)) == 5
+    assert len(engine.shuffle("Rock", "ADMIN", is_admin=True)) == 2  # the rest, past the cap of 5
+    assert engine.snapshot("ADMIN")["me"]["pending"] == 7
+
+
+def test_shuffled_songs_go_to_the_end_in_a_random_order(engine_factory, player, clock, tree):
+    first = shuffle_engine(engine_factory, player, clock, seed=1)
+    first.enqueue("a1.wav", "A")
+    songs_one = [i.song for i in first.shuffle("Rock", "B")]
+    assert [i["song"] for i in first.snapshot("B")["queue"]] == ["a1.wav"] + songs_one
+    same_seed = shuffle_engine(engine_factory, player, clock, seed=1)
+    assert [i.song for i in same_seed.shuffle("Rock", "B")] == songs_one  # injected rng drives the pick
+    other = shuffle_engine(engine_factory, player, clock, seed=2)
+    assert [i.song for i in other.shuffle("Rock", "B")] != songs_one
+
+
+def test_shuffled_songs_belong_to_the_phone_that_asked(engine_factory, player, clock, tree):
+    engine = shuffle_engine(engine_factory, player, clock)
+    items = engine.shuffle("Pop", "A")
+    with pytest.raises(NotOwner):
+        engine.remove(items[0].id, "B")
+    engine.remove(items[0].id, "A")

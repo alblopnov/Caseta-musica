@@ -2,8 +2,9 @@
 
 Songs play in the order they were added, whoever added them: five songs from one
 phone followed by five from another are positions 1 to 5 and 6 to 10. The only
-rules besides order are a cap on how many songs one phone may have waiting and
-that the same song cannot be waiting twice. Only the admin can reorder.
+rules besides order are a cap on how many songs one phone may have waiting (the
+admin is exempt) and that the same song cannot be waiting twice. Only the admin
+can reorder.
 """
 from dataclasses import dataclass
 from uuid import uuid4
@@ -37,10 +38,10 @@ class SongQueue:
         self.max_pending_per_user = max_pending_per_user
         self._items: list[QueueItem] = []
 
-    def add(self, song: str, owner: str) -> QueueItem:
+    def add(self, song: str, owner: str, is_admin: bool = False) -> QueueItem:
         if any(i.song == song for i in self._items):
             raise DuplicateSong(song)
-        if self.pending_count(owner) >= self.max_pending_per_user:
+        if not is_admin and self.pending_count(owner) >= self.max_pending_per_user:
             raise QueueFull(owner)
         item = QueueItem(id=uuid4().hex, song=song, owner=owner)
         self._items.append(item)

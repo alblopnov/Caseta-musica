@@ -197,3 +197,21 @@ def test_random_operations_match_a_plain_list_model():
                 model.remove(victim)
                 model.insert(max(1, min(position, len(model) + 1)) - 1, victim)
             assert [i.id for i in q.snapshot()] == [m[2] for m in model]
+
+
+def test_admin_is_not_limited_by_the_per_phone_cap():
+    q = SongQueue(2)
+    q.add("a1", "ADMIN", is_admin=True)
+    q.add("a2", "ADMIN", is_admin=True)
+    q.add("a3", "ADMIN", is_admin=True)  # over the cap of 2
+    q.add("a4", "ADMIN", is_admin=True)
+    assert q.pending_count("ADMIN") == 4
+    with pytest.raises(QueueFull):
+        q.add("x", "ADMIN")  # the same phone without admin rights is still capped
+
+
+def test_admin_still_cannot_add_a_duplicate():
+    q = SongQueue(2)
+    q.add("x", "A")
+    with pytest.raises(DuplicateSong):
+        q.add("x", "ADMIN", is_admin=True)

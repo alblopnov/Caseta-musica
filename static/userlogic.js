@@ -55,13 +55,29 @@ var UserLogic = (function () {
       return "Ya tienes " + maxOf(state) + " canciones en la cola. Espera a que suene alguna.";
     }
     if (code === "duplicate") return "Esa canción ya está en la cola.";
+    if (code === "nothing_to_add") return "Ya están en la cola todas las canciones de esta sección.";
     if (err && typeof err.message === "string" && err.message) return err.message;
     return "No se pudo completar la acción.";
   }
 
   function counterText(state) {
     if (!state || !state.me) return "";
-    return "Tienes " + (Number(state.me.pending) || 0) + " de " + maxOf(state) + " canciones en la cola";
+    var pending = Number(state.me.pending) || 0;
+    if (state.me.max === null) {  // the admin has no limit
+      return "Tienes " + pending + (pending === 1 ? " canción" : " canciones") + " en la cola (sin límite)";
+    }
+    return "Tienes " + pending + " de " + maxOf(state) + " canciones en la cola";
+  }
+
+  // Under the "Aleatorio" button: which section a shuffle will draw from.
+  function shuffleHint(category) {
+    if (!category || category === "Todas") return "Añade canciones al azar de toda la biblioteca";
+    return "Añade canciones al azar de " + category;
+  }
+
+  function shuffleDoneMessage(count) {
+    var n = Number(count) || 0;
+    return n === 1 ? "Añadida 1 canción al azar" : "Añadidas " + n + " canciones al azar";
   }
 
   // The playing song counts as one more song in the footer.
@@ -128,6 +144,8 @@ var UserLogic = (function () {
     songState: songState,
     conflictMessage: conflictMessage,
     counterText: counterText,
+    shuffleHint: shuffleHint,
+    shuffleDoneMessage: shuffleDoneMessage,
     summaryLine: summaryLine,
     clampElapsed: clampElapsed,
     progressFraction: progressFraction,
