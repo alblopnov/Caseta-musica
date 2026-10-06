@@ -11,6 +11,8 @@
   var stateSeq = 0; // responses older than the last applied one are dropped
   var appliedSeq = 0;
   var queueSig = null; // last rendered queue, to skip identical re-renders
+  var shuffleSig = undefined;
+  var shuffleBar = document.getElementById("shuffle-status");
   var introPlayed = false;
   var skipPending = false;
   var renderedQueue = []; // queue items as drawn: drop positions are computed on these
@@ -206,11 +208,38 @@
     row.addEventListener("touchcancel", function () { finishDrag(null); });
   }
 
-  function emptyState(playing) {
+  function emptyState(state) {
+    var text = UserLogic.emptyQueueText(state);
     return el("div", { class: "empty" },
       el("span", { class: "ico ico-notes", "aria-hidden": "true" }),
-      el("strong", null, playing ? "No hay más canciones en la cola" : "La cola está vacía"),
-      el("span", null, "Añade canciones desde la lista."));
+      el("strong", null, text.title),
+      el("span", null, text.hint));
+  }
+
+  // The bar above the player while shuffle runs, with "Detener" (the admin can always stop it).
+  function renderShuffleStatus(state) {
+    var info = UserLogic.shuffleStatus(state.shuffle);
+    var sig = JSON.stringify(info);
+    if (sig === shuffleSig) return;
+    shuffleSig = sig;
+    setHidden(shuffleBar, info === null);
+    if (info === null) {
+      replaceChildren(shuffleBar, []);
+      return;
+    }
+    replaceChildren(shuffleBar, [
+      el("span", { class: "shuffle-text" }, info.text),
+      info.canStop
+        ? el("button", {
+            class: "btn btn-primary",
+            type: "button",
+            onclick: function (ev) {
+              ev.currentTarget.disabled = true;
+              panel.stopShuffle();
+            },
+          }, el("span", { class: "ico ico-stop", "aria-hidden": "true" }), "Detener")
+        : null,
+    ]);
   }
 
   function renderQueue(state) {
@@ -218,6 +247,7 @@
     var queue = Array.isArray(state.queue) ? state.queue : [];
 
     summaryBox.textContent = UserLogic.summaryLine(state);
+    renderShuffleStatus(state);
 
     // The player card updates itself (and keeps its own bar ticking).
     player.update(np, function (playing) { return [removeButton(playing, true)]; });
@@ -226,6 +256,7 @@
     var etas = queue.map(function (item) { return Format.formatEta(item.eta_seconds); });
     var sig = JSON.stringify([
       !!np,
+      state.shuffle ? state.shuffle.category : null,
       queue.map(function (item, i) { return [item.id, item.title, etas[i]]; }),
     ]);
     if (sig === queueSig) return;
@@ -233,7 +264,7 @@
     renderedQueue = queue;
 
     var rows = queue.map(function (item, i) { return queueRow(item, etas[i], state, i); });
-    if (rows.length === 0) rows.push(emptyState(!!np));
+    if (rows.length === 0) rows.push(emptyState(state));
     replaceChildren(queueBox, rows);
     if (!introPlayed) {
       introPlayed = true;
@@ -350,6 +381,7 @@
   function handleActionError(err) {
     panel.invalidate(); // rebuild the rows so disabled buttons come back
     queueSig = null;
+    shuffleSig = undefined;
     if (AdminLogic.isSessionError(err)) {
       // Cookie gone (expired session / restarted server): back to the PIN form.
       Common.api("GET", "/api/admin/session").then(

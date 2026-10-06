@@ -6,7 +6,7 @@ import re
 from flask import Blueprint, current_app, g, jsonify, render_template, request
 from werkzeug.exceptions import HTTPException
 
-from caseta.engine import EmptyCategory, NothingToShuffle
+from caseta.engine import EmptyCategory, ShuffleLocked
 from caseta.song_queue import DuplicateSong, NotOwner, QueueFull, UnknownItem
 from caseta.identity import is_admin, set_admin
 from caseta.library import InvalidUpload, SongNotFound
@@ -37,8 +37,12 @@ def _domain_error(exc: Exception) -> ApiError | None:
         return ApiError(404, "not_found", "Esa canción ya no está en la cola.")
     if isinstance(exc, EmptyCategory):
         return ApiError(404, "not_found", "No hay canciones en esa sección.")
-    if isinstance(exc, NothingToShuffle):
-        return ApiError(409, "nothing_to_add", "Ya están en la cola todas las canciones de esta sección.")
+    if isinstance(exc, ShuffleLocked):
+        return ApiError(
+            409,
+            "shuffle_locked",
+            "Otro teléfono tiene activado el aleatorio. Solo esa persona o el administrador puede cambiarlo.",
+        )
     if isinstance(exc, DuplicateSong):
         return ApiError(409, "duplicate", "Esa canción ya está en la cola.")
     if isinstance(exc, QueueFull):
@@ -61,7 +65,7 @@ def _register_domain_handlers(app) -> None:
         err = _domain_error(exc)
         return error_response(err.status, err.code, err.message, **err.extra)
 
-    for cls in (SongNotFound, UnknownItem, EmptyCategory, NothingToShuffle, DuplicateSong, QueueFull, NotOwner, InvalidUpload):
+    for cls in (SongNotFound, UnknownItem, EmptyCategory, ShuffleLocked, DuplicateSong, QueueFull, NotOwner, InvalidUpload):
         app.register_error_handler(cls, handler)
 
 
@@ -131,12 +135,22 @@ def enqueue():
 
 
 @bp.post("/api/shuffle")
-def shuffle():
+def start_shuffle():
+    """Turn shuffle on (or change its section): random songs keep playing until stopped."""
     category = json_object().get("category", "Todas")  # "Todas" = the whole library
     if not isinstance(category, str) or not category.strip():
         raise ApiError(400, "bad_request", "Falta la sección.")
-    items = _engine().shuffle(category, g.client_id, is_admin())
-    return jsonify({"added": [_item_json(i) for i in items], "count": len(items)}), 201
+    info = _engine().start_shuffle(category, g.client_id, is_admin())
+    return jsonify({"shuffle": info}), 201
+
+
+@bp.delete("/api/shuffle")
+def stop_shuffle():
+    try:
+        _engine().stop_shuffle(g.client_id, is_admin())
+    except NotOwner:  # another phone started it; not the "remove your own song" message
+        raise ApiError(403, "forbidden", "Solo quien activó el aleatorio o el administrador puede detenerlo.")
+    return jsonify({"status": "stopped"})
 
 
 @bp.delete("/api/queue/<item_id>")

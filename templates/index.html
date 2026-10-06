@@ -37,8 +37,8 @@
           <div class="library-tools">
             <div id="categories" class="chips"></div>
             <div class="shuffle-row">
-              <button id="shuffle-btn" class="btn btn-quiet" type="button">
-                <span class="ico ico-shuffle" aria-hidden="true"></span>Aleatorio
+              <button id="shuffle-btn" class="btn btn-quiet" type="button" aria-pressed="false">
+                <span class="ico ico-shuffle" aria-hidden="true"></span><span id="shuffle-label">Aleatorio</span>
               </button>
               <p id="shuffle-hint" class="meta"></p>
             </div>
@@ -69,6 +69,7 @@
 
       <section class="col-queue" aria-labelledby="queue-title">
         <h2 id="queue-title" class="panel-title">Cola de reproducción</h2>
+        <div id="shuffle-status" class="shuffle-status is-hidden" role="status"></div>
         <div id="now-playing"></div>
         <div id="queue-banner" class="callout is-hidden"></div>
         <div class="panel panel-queue">

@@ -6,6 +6,7 @@ import random
 import threading
 import time
 from typing import Callable
+from uuid import uuid4
 
 from caseta.song_queue import NotOwner, QueueFull, QueueItem, SongQueue
 from caseta.library import Library
@@ -18,15 +19,13 @@ class EmptyCategory(Exception):
     """Shuffle asked for a section that has no songs (or does not exist)."""
 
 
-class NothingToShuffle(Exception):
-    """Every song in the section is already waiting or playing."""
+class ShuffleLocked(Exception):
+    """Shuffle was started by another phone; only that phone or the admin can change it."""
 
 
 class PlaybackEngine:
     # After PlayerUnavailable, wait this long before trying the audio output again.
     AUDIO_RETRY_SECONDS = 5.0
-    # Songs added by one press of "Aleatorio" (fewer when the phone has less room).
-    SHUFFLE_COUNT = 5
     ALL_SECTIONS = "Todas"
 
     def __init__(
@@ -48,6 +47,11 @@ class PlaybackEngine:
             self.AUDIO_RETRY_SECONDS if audio_retry_seconds is None else audio_retry_seconds
         )
         self._rng = rng if rng is not None else random.Random()
+        # Shuffle mode: {"category", "owner", "bag"}. While it is on and nothing is
+        # queued, the next song is drawn from `bag` (a shuffled copy of the section
+        # that is used up before it is reshuffled). Shuffle songs are never queued.
+        self._shuffle: dict | None = None
+        self._last_song: str | None = None
         self._audio_down = False  # a PlayerUnavailable is outstanding
         self._audio_retry_at = 0.0
         self._lock = threading.RLock()
@@ -96,6 +100,10 @@ class PlaybackEngine:
             if self._audio_down and self._clock() < self._audio_retry_at:
                 return  # backing off: the songs wait in the queue
             item = self._queue.pop_next()
+            from_shuffle = False
+            if item is None and self._shuffle is not None:
+                item = self._next_shuffle_item()
+                from_shuffle = item is not None
             if item is None:
                 return
             try:
@@ -107,7 +115,11 @@ class PlaybackEngine:
                 self._player.play(path)
             except PlayerUnavailable as exc:
                 # The device is the problem, not the song: keep it first in line.
-                self._queue.push_front(item)
+                if from_shuffle:
+                    if self._shuffle is not None:
+                        self._shuffle["bag"].insert(0, item.song)
+                else:
+                    self._queue.push_front(item)
                 if not self._audio_down:
                     log.error("Audio output unavailable (%s); songs stay queued, retrying every %.0f s",
                               exc, self._audio_retry_seconds)
@@ -120,6 +132,7 @@ class PlaybackEngine:
                 return
             self._audio_ok_again()
             self._current = item
+            self._last_song = item.song
             self._started_at = self._clock()
 
     def _audio_ok_again(self) -> None:
@@ -139,33 +152,64 @@ class PlaybackEngine:
             self._library.resolve(song)  # raises SongNotFound before the queue is touched
             return self._queue.add(song, owner, is_admin)
 
-    def shuffle(self, category: str, owner: str, is_admin: bool = False) -> list[QueueItem]:
-        """Add random songs from one section ("Todas" = the whole library) to the end.
+    # -- shuffle mode ----------------------------------------------------------
 
-        Songs already waiting or playing are never picked. A phone gets at most
-        SHUFFLE_COUNT songs and never more than its free slots; the admin has no
-        cap. Raises EmptyCategory, QueueFull (no free slot) or NothingToShuffle."""
+    def _pool(self, category: str) -> list[str]:
+        songs = self._library.list_songs()
+        if category == self.ALL_SECTIONS:
+            return songs
+        prefix = category + "/"
+        return [song for song in songs if category and song.startswith(prefix)]
+
+    def _shuffle_info(self, viewer: str, is_admin: bool) -> dict | None:
+        if self._shuffle is None:
+            return None
+        return {
+            "category": self._shuffle["category"],
+            "can_stop": is_admin or self._shuffle["owner"] == viewer,
+        }
+
+    def start_shuffle(self, category: str, owner: str, is_admin: bool = False) -> dict:
+        """Play random songs from one section ("Todas" = everything) until stopped.
+
+        Songs added by hand always play first; a random one is drawn only when the
+        queue is empty. If shuffle is already on, only the phone that started it
+        (or the admin) may change the section (ShuffleLocked otherwise)."""
         with self._lock:
-            if category == self.ALL_SECTIONS:
-                pool = self._library.list_songs()
-            else:
-                prefix = category + "/"
-                pool = [s for s in self._library.list_songs() if category and s.startswith(prefix)]
-            if not pool:
+            current = self._shuffle
+            if current is not None and current["owner"] != owner and not is_admin:
+                raise ShuffleLocked(current["category"])
+            if not self._pool(category):
                 raise EmptyCategory(category)
-            taken = {item.song for item in self._queue.snapshot()}
-            if self._current is not None:
-                taken.add(self._current.song)
-            candidates = [s for s in pool if s not in taken]
-            if not candidates:
-                raise NothingToShuffle(category)
-            room = self.SHUFFLE_COUNT
-            if not is_admin:
-                room = min(room, self._queue.max_pending_per_user - self._queue.pending_count(owner))
-            if room <= 0:
-                raise QueueFull(owner)
-            picks = self._rng.sample(candidates, min(room, len(candidates)))
-            return [self._queue.add(song, owner, is_admin) for song in picks]
+            # A different phone's mode keeps its starter when the admin merely changes it.
+            starter = current["owner"] if current is not None and is_admin else owner
+            self._shuffle = {"category": category, "owner": starter, "bag": []}
+            return self._shuffle_info(owner, is_admin)
+
+    def stop_shuffle(self, requester: str, is_admin: bool = False) -> None:
+        with self._lock:
+            if self._shuffle is None:
+                return
+            if self._shuffle["owner"] != requester and not is_admin:
+                raise NotOwner(self._shuffle["category"])
+            self._shuffle = None
+
+    def _next_shuffle_item(self) -> QueueItem | None:
+        """The next random song as a (never queued) item owned by the shuffle's starter."""
+        shuffle = self._shuffle
+        pool = self._pool(shuffle["category"])
+        if not pool:
+            log.warning("Shuffle section %r has no songs left; turning shuffle off", shuffle["category"])
+            self._shuffle = None
+            return None
+        bag = [song for song in shuffle["bag"] if song in pool]  # drop files that disappeared
+        if not bag:
+            bag = list(pool)
+            self._rng.shuffle(bag)
+            if len(bag) > 1 and bag[0] == self._last_song:
+                bag.append(bag.pop(0))  # never the same song twice in a row
+        shuffle["bag"] = bag
+        return QueueItem(id=uuid4().hex, song=bag.pop(0), owner=shuffle["owner"])
 
     def remove(self, item_id: str, requester: str, is_admin: bool = False) -> None:
         with self._lock:
@@ -228,4 +272,5 @@ class PlaybackEngine:
                     "max": None if is_admin else self._queue.max_pending_per_user,  # None = no limit
                 },
                 "audio_ok": not self._audio_down,
+                "shuffle": self._shuffle_info(viewer, is_admin),
             }

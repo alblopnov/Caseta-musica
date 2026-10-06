@@ -55,7 +55,9 @@ var UserLogic = (function () {
       return "Ya tienes " + maxOf(state) + " canciones en la cola. Espera a que suene alguna.";
     }
     if (code === "duplicate") return "Esa canción ya está en la cola.";
-    if (code === "nothing_to_add") return "Ya están en la cola todas las canciones de esta sección.";
+    if (code === "shuffle_locked") {
+      return "Otro teléfono tiene activado el aleatorio. Solo esa persona o el administrador puede cambiarlo.";
+    }
     if (err && typeof err.message === "string" && err.message) return err.message;
     return "No se pudo completar la acción.";
   }
@@ -69,15 +71,76 @@ var UserLogic = (function () {
     return "Tienes " + pending + " de " + maxOf(state) + " canciones en la cola";
   }
 
-  // Under the "Aleatorio" button: which section a shuffle will draw from.
-  function shuffleHint(category) {
-    if (!category || category === "Todas") return "Añade canciones al azar de toda la biblioteca";
-    return "Añade canciones al azar de " + category;
+  // "Todas" reads better as "toda la biblioteca" inside a sentence.
+  function sectionLabel(category) {
+    return !category || category === "Todas" ? "toda la biblioteca" : category;
   }
 
-  function shuffleDoneMessage(count) {
-    var n = Number(count) || 0;
-    return n === 1 ? "Añadida 1 canción al azar" : "Añadidas " + n + " canciones al azar";
+  // The "Aleatorio" toggle for the selected section: what it says and what a press does.
+  // action: "start" | "stop" | "change" | "none" (someone else's shuffle: not ours to touch).
+  // `shuffle` is state.shuffle: null, or {category, can_stop}.
+  function shuffleControl(category, shuffle) {
+    var wanted = category || "Todas";
+    if (!shuffle) {
+      return {
+        label: "Aleatorio",
+        pressed: false,
+        action: "start",
+        hint: "Reproduce canciones al azar de " + sectionLabel(wanted) + " hasta que lo detengas",
+      };
+    }
+    if (shuffle.category === wanted) {
+      return shuffle.can_stop
+        ? { label: "Aleatorio activo", pressed: true, action: "stop", hint: "Pulsa otra vez para detenerlo" }
+        : {
+            label: "Aleatorio activo",
+            pressed: true,
+            action: "none",
+            hint: "Lo activó otro teléfono. Solo esa persona o el administrador puede detenerlo.",
+          };
+    }
+    if (shuffle.can_stop) {
+      return {
+        label: "Cambiar a " + wanted,
+        pressed: false,
+        action: "change",
+        hint: "Ahora suenan canciones al azar de " + sectionLabel(shuffle.category),
+      };
+    }
+    return {
+      label: "Aleatorio",
+      pressed: false,
+      action: "none",
+      hint: "Aleatorio activo en " + sectionLabel(shuffle.category) + " (lo activó otro teléfono)",
+    };
+  }
+
+  // The bar above the player while shuffle runs: {text, canStop}, or null when it is off.
+  function shuffleStatus(shuffle) {
+    if (!shuffle) return null;
+    return { text: "Aleatorio activo: " + sectionLabel(shuffle.category), canStop: !!shuffle.can_stop };
+  }
+
+  function shuffleStartedMessage(category) {
+    return "Aleatorio activado: " + sectionLabel(category);
+  }
+
+  function shuffleStoppedMessage() {
+    return "Aleatorio detenido";
+  }
+
+  // Title and hint of the empty-queue panel.
+  function emptyQueueText(state) {
+    if (state && state.shuffle) {
+      return {
+        title: "Después sonará una canción al azar",
+        hint: "Aleatorio activo: " + sectionLabel(state.shuffle.category) + ". Lo que añadas sonará antes.",
+      };
+    }
+    return {
+      title: nowPlaying(state) ? "No hay más canciones en la cola" : "La cola está vacía",
+      hint: "Elige una canción de la lista para añadirla.",
+    };
   }
 
   // The playing song counts as one more song in the footer.
@@ -144,8 +207,11 @@ var UserLogic = (function () {
     songState: songState,
     conflictMessage: conflictMessage,
     counterText: counterText,
-    shuffleHint: shuffleHint,
-    shuffleDoneMessage: shuffleDoneMessage,
+    shuffleControl: shuffleControl,
+    shuffleStatus: shuffleStatus,
+    shuffleStartedMessage: shuffleStartedMessage,
+    shuffleStoppedMessage: shuffleStoppedMessage,
+    emptyQueueText: emptyQueueText,
     summaryLine: summaryLine,
     clampElapsed: clampElapsed,
     progressFraction: progressFraction,

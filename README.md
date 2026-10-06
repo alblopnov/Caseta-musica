@@ -50,7 +50,13 @@ An invalid value (for example `CASETA_PORT=abc`) makes `app.py` print an error a
 - **Cap per phone.** A phone can have at most `CASETA_MAX_PENDING` (default 5) songs waiting. The next attempt gets a 409 with code `full`. The song currently playing no longer counts, so you can add another one as soon as yours starts. **The admin has no cap**: once logged in on the admin page, adding songs, uploading with "add to queue" and shuffling are not limited.
 - **No duplicates.** A song that is already waiting in the queue cannot be added again (409, code `duplicate`).
 - **Remove only your own songs.** You can remove or stop only songs your phone added. Other phones' songs answer 403. Removing a song just closes the gap; everyone else keeps their order.
-- **Shuffle ("Aleatorio").** The button under the section chips adds random songs from the section that is selected: with "Todas" it draws from the whole library, with a specific section (for example "Flamenquito") only from that section. The search box is ignored. One press adds up to 5 songs, never more than the phone's free slots (the admin has no cap, so always up to 5), and never a song that is already waiting or playing. The songs go to the end of the queue in random order and belong to the phone that pressed the button, so they count toward the cap and can be removed like any other. If the phone has no free slot the answer is 409 `full`; if every song in the section is already queued, 409 `nothing_to_add`; an unknown or empty section is a 404.
+- **Shuffle ("Aleatorio") is a mode, not a button that adds a few songs.** Press it once and random songs keep playing, endlessly, until it is turned off. It plays the section that is selected: with "Todas" it draws from the whole library, with a specific section (for example "Flamenquito") only from that section. The search box is ignored.
+  - **Turning it off.** The button is a toggle: while it is on it reads "Aleatorio activo" and is filled red, and pressing it again stops it. A bar above the player ("Aleatorio activo: Flamenquito") with a "Detener" button is visible on both pages for as long as the mode runs, so on a phone you never have to scroll to the library to stop it. The song that is playing finishes, then nothing new starts.
+  - **Songs added by hand always come first.** A random song is picked only when the queue is empty, so the queue stays first come, first served and shuffle never delays anyone's song.
+  - **No repeats until the section is used up.** Every song in the section plays once, in random order, before any song plays again, and the same song never plays twice in a row.
+  - **One shuffle at a time, owned by whoever started it.** Only the phone that started it (or the admin) can stop it or switch it to another section; other phones see the bar without the button, and starting it from another phone answers 409 `shuffle_locked`. Once it is off, anyone can start it again.
+  - **Random songs do not use the cap** (they are never in the queue). The starter can skip a random song they dislike with "Quitar", like any song of their own, and the loop carries on with the next one.
+  - If the audio output is unavailable, shuffle waits like the rest of the queue. If the section runs out of songs (files deleted), shuffle turns itself off. The mode is kept in memory only and ends when the server restarts.
 - **No cutting in line.** Clients cannot choose a position; any `position` sent when adding is ignored. Only the admin can reorder.
 - **Admin.** The admin page is at `/albertitoeselmejor` (it is not linked from the main page). Logging in needs `CASETA_ADMIN_PIN`. After 5 wrong PINs from the same IP address, that address is locked out for 60 seconds. The admin can skip the current song, remove any song, and move a song to any position. Songs added later always go to the end. The admin login is a browser-session cookie: it ends when the browser is closed or the server restarts.
 
@@ -63,10 +69,11 @@ All API errors are JSON: `{"error": "<Spanish message>", "code": "<code>"}`.
 | GET | `/` | anyone (user page) |
 | GET | `/albertitoeselmejor` | anyone (admin page; login happens inside it) |
 | GET | `/api/songs` | anyone (list of available songs) |
-| GET | `/api/state` | anyone (now playing, queue with ETAs, your pending count and cap (`null` for the admin), `audio_ok`) |
+| GET | `/api/state` | anyone (now playing, queue with ETAs, your pending count and cap (`null` for the admin), `audio_ok`, and `shuffle`: `null` or `{category, can_stop}`) |
 | POST | `/api/queue` | anyone (body `{"song": "<Category>/file.mp3"}`) |
 | DELETE | `/api/queue/<id>` | the phone that added it, or the admin |
-| POST | `/api/shuffle` | anyone (body `{"category": "Todas"}` or a section name; adds up to 5 random songs from it) |
+| POST | `/api/shuffle` | anyone when shuffle is off; when it is on, only the phone that started it or the admin (body `{"category": "Todas"}` or a section name; turns shuffle on or switches its section) |
+| DELETE | `/api/shuffle` | the phone that started shuffle, or the admin (turns it off; fine if it is already off) |
 | POST | `/api/upload` | anyone (multipart field `song`; optional form field `enqueue=1`) |
 | POST | `/api/admin/login` | anyone who knows the PIN (body `{"pin": "..."}`) |
 | GET | `/api/admin/session` | anyone (reports whether this browser is admin) |

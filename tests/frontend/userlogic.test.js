@@ -172,25 +172,6 @@ test("audioNotice: shown only when the server says audio is down", () => {
   assert.equal(UserLogic.audioNotice(state({ audio_ok: "false" })), null);
 });
 
-test("shuffleHint names the section that will be shuffled", () => {
-  assert.equal(UserLogic.shuffleHint("Todas"), "Añade canciones al azar de toda la biblioteca");
-  assert.equal(UserLogic.shuffleHint(undefined), "Añade canciones al azar de toda la biblioteca");
-  assert.equal(UserLogic.shuffleHint("Flamenquito"), "Añade canciones al azar de Flamenquito");
-});
-
-test("shuffleDoneMessage", () => {
-  assert.equal(UserLogic.shuffleDoneMessage(1), "Añadida 1 canción al azar");
-  assert.equal(UserLogic.shuffleDoneMessage(5), "Añadidas 5 canciones al azar");
-  assert.equal(UserLogic.shuffleDoneMessage(undefined), "Añadidas 0 canciones al azar");
-});
-
-test("conflictMessage for a shuffle where everything is already queued", () => {
-  assert.equal(
-    UserLogic.conflictMessage({ code: "nothing_to_add" }, null),
-    "Ya están en la cola todas las canciones de esta sección."
-  );
-});
-
 test("counterText has no cap for the admin (max is null)", () => {
   assert.equal(
     UserLogic.counterText({ me: { pending: 7, max: null } }),
@@ -200,4 +181,91 @@ test("counterText has no cap for the admin (max is null)", () => {
     UserLogic.counterText({ me: { pending: 1, max: null } }),
     "Tienes 1 canción en la cola (sin límite)"
   );
+});
+
+// -- shuffle mode ----------------------------------------------------------
+
+const mode = (category, canStop) => ({ category, can_stop: canStop });
+
+test("shuffleControl: off, the button starts shuffle for the selected section", () => {
+  const all = UserLogic.shuffleControl("Todas", null);
+  assert.deepEqual(
+    { label: all.label, pressed: all.pressed, action: all.action },
+    { label: "Aleatorio", pressed: false, action: "start" }
+  );
+  assert.equal(all.hint, "Reproduce canciones al azar de toda la biblioteca hasta que lo detengas");
+  const rock = UserLogic.shuffleControl("Flamenquito", null);
+  assert.equal(rock.action, "start");
+  assert.equal(rock.hint, "Reproduce canciones al azar de Flamenquito hasta que lo detengas");
+  assert.equal(UserLogic.shuffleControl(undefined, null).action, "start");
+});
+
+test("shuffleControl: on for this section, the button is a pressed toggle that stops it", () => {
+  const c = UserLogic.shuffleControl("Flamenquito", mode("Flamenquito", true));
+  assert.deepEqual(
+    { label: c.label, pressed: c.pressed, action: c.action },
+    { label: "Aleatorio activo", pressed: true, action: "stop" }
+  );
+  assert.equal(c.hint, "Pulsa otra vez para detenerlo");
+});
+
+test("shuffleControl: on for another section, the starter can switch it", () => {
+  const c = UserLogic.shuffleControl("Reggaeton", mode("Flamenquito", true));
+  assert.deepEqual(
+    { label: c.label, pressed: c.pressed, action: c.action },
+    { label: "Cambiar a Reggaeton", pressed: false, action: "change" }
+  );
+  assert.equal(c.hint, "Ahora suenan canciones al azar de Flamenquito");
+  assert.equal(UserLogic.shuffleControl("Todas", mode("Flamenquito", true)).label, "Cambiar a Todas");
+});
+
+test("shuffleControl: someone else's shuffle cannot be touched from this phone", () => {
+  const same = UserLogic.shuffleControl("Todas", mode("Todas", false));
+  assert.equal(same.action, "none");
+  assert.equal(same.pressed, true);
+  assert.equal(same.hint, "Lo activó otro teléfono. Solo esa persona o el administrador puede detenerlo.");
+  const other = UserLogic.shuffleControl("Reggaeton", mode("Flamenquito", false));
+  assert.equal(other.action, "none");
+  assert.equal(other.pressed, false);
+});
+
+test("shuffleStatus describes the running mode for the bar above the player", () => {
+  assert.equal(UserLogic.shuffleStatus(null), null);
+  assert.equal(UserLogic.shuffleStatus(undefined), null);
+  assert.deepEqual(UserLogic.shuffleStatus(mode("Flamenquito", true)), {
+    text: "Aleatorio activo: Flamenquito",
+    canStop: true,
+  });
+  assert.deepEqual(UserLogic.shuffleStatus(mode("Todas", false)), {
+    text: "Aleatorio activo: toda la biblioteca",
+    canStop: false,
+  });
+});
+
+test("shuffle toasts", () => {
+  assert.equal(UserLogic.shuffleStartedMessage("Todas"), "Aleatorio activado: toda la biblioteca");
+  assert.equal(UserLogic.shuffleStartedMessage("Reggaeton"), "Aleatorio activado: Reggaeton");
+  assert.equal(UserLogic.shuffleStoppedMessage(), "Aleatorio detenido");
+});
+
+test("conflictMessage when another phone owns the shuffle", () => {
+  assert.equal(
+    UserLogic.conflictMessage({ code: "shuffle_locked" }, null),
+    "Otro teléfono tiene activado el aleatorio. Solo esa persona o el administrador puede cambiarlo."
+  );
+});
+
+test("emptyQueueText says what happens next", () => {
+  assert.deepEqual(UserLogic.emptyQueueText(state()), {
+    title: "La cola está vacía",
+    hint: "Elige una canción de la lista para añadirla.",
+  });
+  assert.equal(
+    UserLogic.emptyQueueText(state({ now_playing: { id: "p", song: "x", mine: false, elapsed: 0, duration: 9 } })).title,
+    "No hay más canciones en la cola"
+  );
+  assert.deepEqual(UserLogic.emptyQueueText(state({ shuffle: mode("Reggaeton", false) })), {
+    title: "Después sonará una canción al azar",
+    hint: "Aleatorio activo: Reggaeton. Lo que añadas sonará antes.",
+  });
 });

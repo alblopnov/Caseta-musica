@@ -30,7 +30,9 @@ var LibraryPanel = (function () {
     var pageInfo = document.getElementById("page-info");
     var categoriesBox = document.getElementById("categories");
     var shuffleBtn = document.getElementById("shuffle-btn");
+    var shuffleLabel = document.getElementById("shuffle-label");
     var shuffleHint = document.getElementById("shuffle-hint");
+    var shuffleBusy = false;
     var songBody = document.querySelector("#song-list tbody");
 
     function renderCategories(names) {
@@ -79,11 +81,39 @@ var LibraryPanel = (function () {
         el("td", null, button));
     }
 
+    // The "Aleatorio" toggle: its label, pressed state and hint follow the server's
+    // shuffle mode (state.shuffle) and the section that is selected right now.
+    function shuffleControl() {
+      var state = opts.getState();
+      return UserLogic.shuffleControl(selectedCategory, state ? state.shuffle : null);
+    }
+
+    function renderShuffle() {
+      var control = shuffleControl();
+      shuffleLabel.textContent = control.label;
+      shuffleHint.textContent = control.hint;
+      shuffleBtn.setAttribute("aria-pressed", control.pressed ? "true" : "false");
+      shuffleBtn.disabled = shuffleBusy || control.action === "none";
+    }
+
+    function stopShuffle() {
+      return Common.api("DELETE", "/api/shuffle").then(
+        function () {
+          Common.toast(UserLogic.shuffleStoppedMessage(), "success");
+          return opts.refresh();
+        },
+        function (err) {
+          opts.onError(err);
+          return opts.refresh();
+        }
+      );
+    }
+
     function renderSongs(force) {
       var state = opts.getState();
       var names = UserLogic.categories(allSongs);
       if (names.indexOf(selectedCategory) === -1) selectedCategory = "Todas";
-      shuffleHint.textContent = UserLogic.shuffleHint(selectedCategory); // shuffle ignores the search box
+      renderShuffle();
       var filtered = UserLogic.filterSongs(allSongs, selectedCategory, searchInput.value);
       var page = UserLogic.paginate(filtered, currentPage, SONGS_PER_PAGE);
       currentPage = page.page;
@@ -135,22 +165,33 @@ var LibraryPanel = (function () {
       currentPage = 1;
     }
 
-    // "Aleatorio": the server adds random songs from the selected section
-    // ("Todas" = everything) and respects the phone's cap.
+    // "Aleatorio" is a toggle. Off: start random songs from the selected section
+    // ("Todas" = everything). On for this section: stop. On for another section
+    // (and ours to change): switch to this one.
     shuffleBtn.addEventListener("click", function () {
-      if (shuffleBtn.disabled) return;
-      shuffleBtn.disabled = true;
-      Common.api("POST", "/api/shuffle", { category: selectedCategory }).then(
-        function (res) {
-          Common.toast(UserLogic.shuffleDoneMessage(res && res.count), "success");
-          return opts.refresh();
-        },
-        function (err) {
-          opts.onError(err);
-          return opts.refresh();
-        }
-      ).then(function () {
-        shuffleBtn.disabled = false;
+      var control = shuffleControl();
+      if (shuffleBusy || control.action === "none") return;
+      shuffleBusy = true;
+      renderShuffle();
+      var request;
+      if (control.action === "stop") {
+        request = stopShuffle();
+      } else {
+        var category = selectedCategory;
+        request = Common.api("POST", "/api/shuffle", { category: category }).then(
+          function () {
+            Common.toast(UserLogic.shuffleStartedMessage(category), "success");
+            return opts.refresh();
+          },
+          function (err) {
+            opts.onError(err);
+            return opts.refresh();
+          }
+        );
+      }
+      request.then(function () {
+        shuffleBusy = false;
+        renderShuffle();
       });
     });
 
@@ -169,6 +210,7 @@ var LibraryPanel = (function () {
 
     return {
       render: renderSongs,
+      stopShuffle: stopShuffle,
       load: loadSongs,
       isLoaded: function () { return songsLoaded; },
       showCategory: showCategory,

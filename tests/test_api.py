@@ -265,7 +265,7 @@ def test_songs_lists_library(phone_a, songs):
 
 def test_state_shape_and_unknown_route_json(phone_a):
     s = phone_a.get("/api/state").json
-    assert set(s) == {"now_playing", "queue", "total_seconds", "me", "audio_ok"}
+    assert set(s) == {"now_playing", "queue", "total_seconds", "me", "audio_ok", "shuffle"}
     assert phone_a.get("/api/nope").json["error"]
     r = phone_a.get("/api/nope")
     assert (r.status_code, r.json["code"]) == (404, "not_found")
@@ -336,7 +336,7 @@ def test_state_reports_no_limit_for_the_admin(phone_a, songs):
     assert phone_a.get("/api/state").json["me"]["max"] is None
 
 
-# -- shuffle ------------------------------------------------------------------------
+# -- shuffle mode ---------------------------------------------------------------------
 
 
 @pytest.fixture
@@ -345,68 +345,114 @@ def sections(songs):
 
     for name in ("r1", "r2", "r3", "r4", "r5", "r6", "r7"):
         make_wav(songs / "Rock" / f"{name}.wav", 1)
-    for name in ("p1", "p2"):
+    for name in ("p1", "p2", "p3"):
         make_wav(songs / "Pop" / f"{name}.wav", 1)
     return songs
 
 
-def queue_songs(c):
-    return [i["song"] for i in c.get("/api/state").json["queue"]]
+def play_some(app, player, n):
+    """Run the engine by hand: n songs start, each one finishing before the next."""
+    engine = app.extensions["engine"]
+    before = len(player.played)
+    for _ in range(n * 3 + 5):
+        engine.tick()
+        if len(player.played) - before >= n:
+            break
+        player.finish()
+    return [p.relative_to(app.extensions["config"].song_folder.resolve()).as_posix()
+            for p in player.played[before:before + n]]
 
 
-def test_shuffle_adds_random_songs_from_the_selected_section(phone_a, sections):
+def test_shuffle_starts_a_mode_and_reports_it_in_the_state(phone_a, phone_b, sections):
     r = post(phone_a, "/api/shuffle", {"category": "Rock"})
     assert r.status_code == 201
-    assert r.json["count"] == 5 and len(r.json["added"]) == 5
-    assert set(r.json["added"][0]) == {"id", "song", "title"}
-    queued = queue_songs(phone_a)
-    assert len(queued) == 5 and all(s.startswith("Rock/") for s in queued)
-    assert queued == [i["song"] for i in r.json["added"]]
+    assert r.json == {"shuffle": {"category": "Rock", "can_stop": True}}
+    assert phone_a.get("/api/state").json["shuffle"] == {"category": "Rock", "can_stop": True}
+    assert phone_b.get("/api/state").json["shuffle"] == {"category": "Rock", "can_stop": False}
 
 
-def test_shuffle_in_todas_uses_the_whole_library(phone_a, sections):
-    login(phone_a)  # no cap, so repeated shuffles can drain the library
-    seen = set()
-    for _ in range(10):
-        r = post(phone_a, "/api/shuffle", {"category": "Todas"})
-        if r.status_code != 201:
-            break
-        seen.update(i["song"] for i in r.json["added"])
-    songs_all = set(phone_a.get("/api/songs").json)
-    assert seen == songs_all
-    assert any("/" not in s for s in seen) and any(s.startswith("Pop/") for s in seen)
+def test_state_has_no_shuffle_when_it_is_off(phone_a, sections):
+    assert phone_a.get("/api/state").json["shuffle"] is None
+
+
+def test_shuffle_keeps_playing_random_songs_from_the_selected_section(app, player, phone_a, sections):
+    post(phone_a, "/api/shuffle", {"category": "Rock"})
+    played = play_some(app, player, 15)
+    assert len(played) == 15 and all(s.startswith("Rock/") for s in played)
+    assert phone_a.get("/api/state").json["queue"] == []  # random songs are not queued
+
+
+def test_shuffle_in_todas_uses_the_whole_library(app, player, phone_a, sections):
+    post(phone_a, "/api/shuffle", {"category": "Todas"})
+    everything = phone_a.get("/api/songs").json
+    played = play_some(app, player, len(everything))
+    assert sorted(played) == sorted(everything)
 
 
 def test_shuffle_without_a_category_means_todas(phone_a, sections):
     r = post(phone_a, "/api/shuffle", {})
-    assert r.status_code == 201 and r.json["count"] == 5
+    assert r.status_code == 201 and r.json["shuffle"]["category"] == "Todas"
 
 
-def test_shuffle_respects_the_per_phone_cap(phone_a, phone_b, sections):
-    assert post(phone_a, "/api/shuffle", {"category": "Rock"}).json["count"] == 5
-    r = post(phone_a, "/api/shuffle", {"category": "Rock"})
-    assert (r.status_code, r.json["code"]) == (409, "full")
-    assert post(phone_b, "/api/shuffle", {"category": "Rock"}).status_code == 201  # its own slots
+def test_songs_added_by_hand_play_before_the_next_random_song(app, player, phone_a, phone_b, sections):
+    post(phone_a, "/api/shuffle", {"category": "Rock"})
+    app.extensions["engine"].tick()
+    post(phone_b, "/api/queue", {"song": "a1.wav"})
+    player.finish()
+    app.extensions["engine"].tick()
+    assert player.played[1].name == "a1.wav"
 
 
-def test_shuffle_admin_is_not_limited_by_the_cap(phone_a, sections):
-    login(phone_a)
-    assert post(phone_a, "/api/shuffle", {"category": "Rock"}).json["count"] == 5
-    assert post(phone_a, "/api/shuffle", {"category": "Rock"}).json["count"] == 2
-    assert len(queue_songs(phone_a)) == 7
+def test_stopping_shuffle(app, player, phone_a, sections):
+    post(phone_a, "/api/shuffle", {"category": "Rock"})
+    app.extensions["engine"].tick()
+    r = phone_a.delete("/api/shuffle")
+    assert (r.status_code, r.json) == (200, {"status": "stopped"})
+    assert phone_a.get("/api/state").json["shuffle"] is None
+    player.finish()
+    app.extensions["engine"].tick()
+    assert len(player.played) == 1
 
 
-def test_shuffle_unknown_section_is_404(phone_a, sections):
+def test_stopping_when_it_is_off_is_fine(phone_a, sections):
+    r = phone_a.delete("/api/shuffle")
+    assert (r.status_code, r.json) == (200, {"status": "stopped"})
+
+
+def test_another_phone_cannot_stop_or_change_the_shuffle(phone_a, phone_b, sections):
+    post(phone_a, "/api/shuffle", {"category": "Rock"})
+    r = phone_b.delete("/api/shuffle")
+    assert (r.status_code, r.json["code"]) == (403, "forbidden")
+    assert r.json["error"] == "Solo quien activó el aleatorio o el administrador puede detenerlo."
+    r = post(phone_b, "/api/shuffle", {"category": "Pop"})
+    assert (r.status_code, r.json["code"]) == (409, "shuffle_locked")
+    assert phone_a.get("/api/state").json["shuffle"]["category"] == "Rock"
+    r = post(phone_a, "/api/shuffle", {"category": "Pop"})  # the starter can switch section
+    assert r.status_code == 201 and r.json["shuffle"]["category"] == "Pop"
+
+
+def test_admin_can_stop_or_change_any_shuffle(phone_a, phone_b, sections):
+    post(phone_a, "/api/shuffle", {"category": "Rock"})
+    login(phone_b)
+    assert phone_b.get("/api/state").json["shuffle"]["can_stop"] is True
+    assert post(phone_b, "/api/shuffle", {"category": "Pop"}).status_code == 201
+    assert phone_b.delete("/api/shuffle").status_code == 200
+    assert phone_a.get("/api/state").json["shuffle"] is None
+
+
+def test_anyone_can_start_shuffle_once_it_is_off(phone_a, phone_b, sections):
+    post(phone_a, "/api/shuffle", {"category": "Rock"})
+    phone_a.delete("/api/shuffle")
+    assert post(phone_b, "/api/shuffle", {"category": "Pop"}).status_code == 201
+
+
+def test_shuffle_unknown_section_is_404_and_changes_nothing(phone_a, sections):
+    post(phone_a, "/api/shuffle", {"category": "Rock"})
     for bad in ("Nope", "Ro", "rock", "../Rock"):
         r = post(phone_a, "/api/shuffle", {"category": bad})
         assert (r.status_code, r.json["code"]) == (404, "not_found"), bad
         assert "sección" in r.json["error"]
-
-
-def test_shuffle_when_everything_in_the_section_is_queued_is_409(phone_a, phone_b, sections):
-    assert post(phone_a, "/api/shuffle", {"category": "Pop"}).json["count"] == 2
-    r = post(phone_b, "/api/shuffle", {"category": "Pop"})
-    assert (r.status_code, r.json["code"]) == (409, "nothing_to_add")
+    assert phone_a.get("/api/state").json["shuffle"]["category"] == "Rock"
 
 
 @pytest.mark.parametrize("body", [{"category": 5}, {"category": None}, {"category": ""}, {"category": ["Rock"]}])
@@ -420,7 +466,9 @@ def test_shuffle_malformed_body_is_400_not_500(phone_a, sections):
     assert r.status_code == 400 and "error" in r.json
 
 
-def test_shuffled_songs_belong_to_the_phone_that_asked(phone_a, phone_b, sections):
-    added = post(phone_a, "/api/shuffle", {"category": "Pop"}).json["added"]
-    assert phone_b.delete(f"/api/queue/{added[0]['id']}").status_code == 403
-    assert phone_a.delete(f"/api/queue/{added[0]['id']}").status_code == 200
+def test_random_songs_do_not_use_up_the_cap(app, player, phone_a, sections):
+    post(phone_a, "/api/shuffle", {"category": "Rock"})
+    play_some(app, player, 8)
+    assert phone_a.get("/api/state").json["me"]["pending"] == 0
+    for name in ("a1", "a2", "a3", "b1", "s0"):
+        assert post(phone_a, "/api/queue", {"song": f"{name}.wav"}).status_code == 201

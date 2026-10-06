@@ -45,6 +45,7 @@ ICONS = (
     "dots-six-vertical-bold",
     "music-notes-fill",
     "shuffle-bold",
+    "stop-fill",
 )
 
 

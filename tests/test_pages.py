@@ -96,10 +96,13 @@ def test_player_card_script_loads_before_the_page_scripts(phone_a):
         assert 'id="now-playing"' in html
 
 
-def test_both_pages_have_the_shuffle_button_and_its_hint(phone_a):
+def test_both_pages_have_the_shuffle_toggle_and_the_status_bar(phone_a):
     for url in ("/", "/albertitoeselmejor"):
         html = phone_a.get(url).get_data(as_text=True)
         assert 'id="shuffle-btn"' in html and 'id="shuffle-hint"' in html, url
+        # the status bar (with the stop button, built by the script) sits right above the player
+        assert 'id="shuffle-status"' in html, url
+        assert html.index('id="shuffle-status"') < html.index('id="now-playing"'), url
         assert "Aleatorio" in html, url
         # the button sits with the section chips, before the song list
         assert html.index('id="categories"') < html.index('id="shuffle-btn"') < html.index('id="song-list"'), url
