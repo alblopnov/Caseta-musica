@@ -1,215 +1,42 @@
+"""Production entry point: serves the Caseta jukebox with waitress."""
+from __future__ import annotations
+
 import os
-import threading
-import queue
-import time
-import wave
+import sys
 
-from flask import Flask, jsonify, request, render_template
-from flask_cors import CORS
-from werkzeug.utils import secure_filename
-import pygame
+import waitress
 
-pygame.mixer.init()
+from caseta import create_app
+from caseta.config import Config
 
-app = Flask(__name__, template_folder='templates', static_folder='static')
-CORS(app)
 
-SONG_FOLDER = os.path.join(os.getcwd(), 'songs')
-UPLOAD_FOLDER = os.path.join(SONG_FOLDER, 'reggaeton')
-ALLOWED_EXTENSIONS = {'mp3', 'wav'}
-
-play_queue = queue.Queue()
-current_song = None
-queue_lock = threading.Lock()
-
-def allowed_file(filename):
-    return '.' in filename and \
-           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-def player_worker():
-    global current_song
-    while True:
-        song = play_queue.get()
-        if song is None:
-            break
-        path = os.path.join(SONG_FOLDER, song)
-        if not os.path.isfile(path):
-            play_queue.task_done()
-            continue
-
-        with queue_lock:
-            current_song = song
-
-        try:
-            pygame.mixer.music.load(path)
-            pygame.mixer.music.play()
-            while pygame.mixer.music.get_busy():
-                time.sleep(0.5)
-        except Exception as e:
-            print(f"[ERROR PLAYBACK] {e}")
-
-        with queue_lock:
-            current_song = None
-        play_queue.task_done()
-
-threading.Thread(target=player_worker, daemon=True).start()
-
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-@app.route('/albertitoeselmejor')
-def admin_view():
-    return render_template('admin.html')
-
-@app.route('/api/songs', methods=['GET'])
-def get_songs():
-    song_list = []
-    for root, _, files in os.walk(SONG_FOLDER):
-        for f in files:
-            if f.lower().endswith(('.mp3', '.wav')):
-                full_path = os.path.join(root, f)
-                rel_path = os.path.relpath(full_path, SONG_FOLDER).replace('\\', '/')
-                song_list.append(rel_path)
-    return jsonify(song_list)
-
-@app.route('/api/upload', methods=['POST'])
-def upload_song():
-    if 'song' not in request.files:
-        return jsonify({'error': 'No se ha enviado ningún fichero'}), 400
-    file = request.files['song']
-    if file.filename == '':
-        return jsonify({'error': 'Nombre de fichero vacío'}), 400
-    if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename)
-        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-        dest = os.path.join(UPLOAD_FOLDER, filename)
-        file.save(dest)
-        return jsonify({'status': 'ok'}), 201
-    else:
-        return jsonify({'error': 'Tipo de archivo no permitido'}), 400
-
-@app.route('/api/queue', methods=['GET'])
-def get_queue():
-    with queue_lock:
-        cola = []
-        if current_song:
-            cola.append(current_song)
-        cola.extend(list(play_queue.queue))
-    return jsonify(cola)
-
-@app.route('/api/queue/duration', methods=['GET'])
-def get_queue_duration():
-    # Recoge la misma lista que get_queue()
-    with queue_lock:
-        cola = []
-        if current_song:
-            cola.append(current_song)
-        cola.extend(list(play_queue.queue))
-
-    total_seconds = 0.0
-    for song in cola:
-        path = os.path.join(SONG_FOLDER, song)
-        try:
-            if song.lower().endswith('.wav'):
-                # duración exacta con wave
-                with wave.open(path, 'rb') as wf:
-                    frames = wf.getnframes()
-                    rate = wf.getframerate()
-                    total_seconds += frames / rate
-            elif song.lower().endswith('.mp3'):
-                # estimación a 192 kbps -> 192000 bits/s = 24000 bytes/s
-                size = os.path.getsize(path)
-                total_seconds += size / 24000.0
-        except Exception:
-            # si falla en algún fichero, lo ignoramos
-            pass
-
-    return jsonify({'total_duration': total_seconds})
-
-@app.route('/api/queue', methods=['POST'])
-def add_to_queue():
-    data = request.get_json()
-    song = data.get('song')
-    pos = data.get('position')
-    path = os.path.join(SONG_FOLDER, song or '')
-    if not song or not os.path.isfile(path):
-        return jsonify({'error': 'Canción no encontrada'}), 404
-
-    play_queue.put(song)
-
-    if pos is not None:
-        try:
-            pos_int = int(pos)
-        except ValueError:
-            return jsonify({'error': 'Posición inválida'}), 400
-
-        with play_queue.mutex:
-            q = play_queue.queue
-            last = q.pop()
-            idx = pos_int - 2
-            if idx < 0:
-                idx = 0
-            if idx > len(q):
-                idx = len(q)
-            q.insert(idx, last)
-
-    return jsonify({'status': 'ok'}), 201
-
-@app.route('/api/queue', methods=['DELETE'])
-def remove_from_queue():
-    data = request.get_json()
-    song = data.get('song')
-    if not song:
-        return jsonify({'error': 'No song specified'}), 400
-
-    removed = False
-    with play_queue.mutex:
-        try:
-            play_queue.queue.remove(song)
-            removed = True
-        except ValueError:
-            pass
-
-    global current_song
-    with queue_lock:
-        if not removed and current_song == song:
-            pygame.mixer.music.stop()
-            current_song = None
-            removed = True
-
-    if not removed:
-        return jsonify({'error': 'Song not in queue'}), 404
-    return jsonify({'status': 'removed'}), 200
-
-@app.route('/api/queue/move', methods=['POST'])
-def move_in_queue():
-    data = request.get_json()
-    song = data.get('song')
-    pos = data.get('position')
-    if not song or pos is None:
-        return jsonify({'error': 'Faltan datos'}), 400
-
+def _port(raw: str | None) -> int:
+    if raw is None or raw.strip() == "":
+        return 5000
     try:
-        pos_int = int(pos)
+        return int(raw)
     except ValueError:
-        return jsonify({'error': 'Posición inválida'}), 400
+        raise ValueError(f"CASETA_PORT must be an integer, got {raw!r}") from None
 
-    with play_queue.mutex:
-        q = play_queue.queue
-        try:
-            q.remove(song)
-        except ValueError:
-            return jsonify({'error': 'Canción no está en la cola'}), 404
 
-        idx = pos_int - 2
-        if idx < 0:
-            idx = 0
-        if idx > len(q):
-            idx = len(q)
-        q.insert(idx, song)
+def main() -> None:
+    try:
+        config = Config.from_env()
+        port = _port(os.environ.get("CASETA_PORT"))
+    except ValueError as error:
+        print(f"Configuración inválida: {error}", file=sys.stderr)
+        sys.exit(2)
+    if not config.admin_pin:
+        print("Aviso: CASETA_ADMIN_PIN no está definido; la página de administración está desactivada.", file=sys.stderr)
 
-    return jsonify({'status': 'moved'}), 200
+    app = create_app(config)
+    engine = app.extensions["engine"]
+    try:
+        waitress.serve(app, host="0.0.0.0", port=port, threads=8)
+    finally:
+        engine.stop()  # first, so the engine cannot start another song...
+        engine.skip()  # ...then silence the one still playing
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
+
+if __name__ == "__main__":
+    main()

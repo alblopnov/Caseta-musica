@@ -1,171 +1,235 @@
-const API = '';
-const songsPerPage = 20;
-let currentPage = 1;
-let allSongs = [];
-let selectedCategory = 'Todas';
-let categories = ['Todas'];
+// User page: library, queue and upload. DOM wiring only; the rules (texts,
+// filtering, paging) live in userlogic.js. Every node is built with Common.el.
+(function () {
+  var el = Common.el;
+  var POLL_MS = 3000;
+  var UPLOAD_CATEGORY = "Subidas";
 
-async function fetchSongs() {
-  const data = (await axios.get(`${API}/api/songs`)).data;
-  categories = ['Todas'];
-  data.forEach(path => {
-    const parts = path.split('/');
-    if (parts.length > 1 && !categories.includes(parts[0])) {
-      categories.push(parts[0]);
-    }
+  var lastState = null;
+  var stateSeq = 0; // responses older than the last applied one are dropped
+  var appliedSeq = 0;
+
+  var queueBox = document.getElementById("queue");
+  var bannerBox = document.getElementById("queue-banner");
+  var counterBox = document.getElementById("queue-counter");
+  var summaryBox = document.getElementById("queue-info");
+  var offlineNotice = document.getElementById("offline-notice");
+  var audioNotice = document.getElementById("audio-notice");
+  var uploadInput = document.getElementById("upload-input");
+  var uploadBtn = document.getElementById("upload-btn");
+  var uploadEnqueue = document.getElementById("upload-enqueue");
+
+  var queueSig = null;
+  var shuffleSig = undefined;
+  var shuffleBar = document.getElementById("shuffle-status");
+  var introPlayed = false;
+
+  var player = NowPlaying.create();
+  document.getElementById("now-playing").appendChild(player.node);
+
+  // Library / add panel shared with the admin page (library.js).
+  var panel = LibraryPanel.create({
+    getState: function () { return lastState; },
+    refresh: function () { return safeRefresh(); },
+    onError: function (err) { handleActionError(err); },
   });
-  return data;
-}
 
-async function fetchQueue() {
-  return (await axios.get(`${API}/api/queue`)).data;
-}
+  function replaceChildren(node, children) {
+    while (node.firstChild) node.removeChild(node.firstChild);
+    children.forEach(function (c) { node.appendChild(c); });
+  }
 
-async function fetchQueueDuration() {
-  return (await axios.get(`${API}/api/queue/duration`)).data.total_duration;
-}
+  function setHidden(node, hidden) {
+    node.classList.toggle("is-hidden", hidden);
+  }
 
-function stripExtension(filename) {
-  return filename.replace(/\.[^/.]+$/, '');
-}
+  // -- queue --------------------------------------------------------------
 
-function renderCategories() {
-  const container = document.getElementById('categories');
-  container.innerHTML = '';
-  categories.forEach(cat => {
-    const btn = document.createElement('button');
-    btn.textContent = cat;
-    btn.className = 'button';
-    if (cat === selectedCategory) {
-      btn.classList.add('is-primary');
-    } else if (cat === 'Todas') {
-      btn.classList.add('is-white');
+  function removeItem(id) {
+    Common.api("DELETE", "/api/queue/" + encodeURIComponent(id)).then(
+      function () { return safeRefresh(); },
+      function (err) {
+        handleActionError(err);
+        return safeRefresh();
+      }
+    );
+  }
+
+  // Owner tag and remove button. `onPlayer` uses the light style for the red card.
+  function ownerControls(item, onPlayer) {
+    if (!item.mine) return null;
+    return [
+      el("span", { class: "tag" }, "Tuya"),
+      el("button", {
+        class: onPlayer ? "btn btn-light" : "btn btn-text",
+        type: "button",
+        onclick: function (ev) {
+          ev.currentTarget.disabled = true;
+          removeItem(item.id);
+        },
+      }, el("span", { class: "ico ico-x", "aria-hidden": "true" }), "Quitar"),
+    ];
+  }
+
+  function queueRow(item, etaText, index) {
+    return el("div", { class: "q-row" + (item.mine ? " is-mine" : ""), style: "--i:" + index },
+      el("span", { class: "q-pos", "aria-hidden": "true" }, String(index + 1)),
+      el("div", { class: "q-main" },
+        el("div", { class: "q-title" }, item.title),
+        el("div", { class: "q-meta" }, "Suena en " + etaText)),
+      el("div", { class: "q-actions" }, ownerControls(item, false)));
+  }
+
+  function emptyState(state) {
+    var text = UserLogic.emptyQueueText(state);
+    return el("div", { class: "empty" },
+      el("span", { class: "ico ico-notes", "aria-hidden": "true" }),
+      el("strong", null, text.title),
+      el("span", null, text.hint));
+  }
+
+  // The bar above the player while shuffle runs, with "Detener" for whoever may stop it.
+  function renderShuffleStatus(state) {
+    var info = UserLogic.shuffleStatus(state.shuffle);
+    var sig = JSON.stringify(info);
+    if (sig === shuffleSig) return;
+    shuffleSig = sig;
+    setHidden(shuffleBar, info === null);
+    if (info === null) {
+      replaceChildren(shuffleBar, []);
+      return;
+    }
+    replaceChildren(shuffleBar, [
+      el("span", { class: "shuffle-text" }, info.text),
+      info.canStop
+        ? el("button", {
+            class: "btn btn-primary",
+            type: "button",
+            onclick: function (ev) {
+              ev.currentTarget.disabled = true;
+              panel.stopShuffle();
+            },
+          }, el("span", { class: "ico ico-stop", "aria-hidden": "true" }), "Detener")
+        : null,
+    ]);
+  }
+
+  function renderQueue(state) {
+    var np = state.now_playing || null;
+    var queue = Array.isArray(state.queue) ? state.queue : [];
+
+    var banner = UserLogic.computeBanner(state);
+    setHidden(bannerBox, banner === null);
+    bannerBox.textContent = banner === null ? "" : banner;
+    counterBox.textContent = UserLogic.counterText(state);
+    summaryBox.textContent = UserLogic.summaryLine(state);
+
+    // The player card updates itself (and keeps its own bar ticking).
+    player.update(np, function (playing) { return ownerControls(playing, true); });
+
+    var etas = queue.map(function (item) { return Format.formatEta(item.eta_seconds); });
+    renderShuffleStatus(state);
+
+    var sig = JSON.stringify([
+      !!np,
+      state.shuffle ? state.shuffle.category : null,
+      queue.map(function (item, i) { return [item.id, item.title, item.mine, etas[i]]; }),
+    ]);
+    if (sig === queueSig) return;
+    queueSig = sig;
+
+    var rows = queue.map(function (item, i) { return queueRow(item, etas[i], i); });
+    if (rows.length === 0) rows.push(emptyState(state));
+    replaceChildren(queueBox, rows);
+    if (!introPlayed) {
+      introPlayed = true;
+      queueBox.classList.add("is-intro"); // rows rise in once, on the first draw
+      setTimeout(function () { queueBox.classList.remove("is-intro"); }, 1200);
+    }
+  }
+
+  // -- state / polling -------------------------------------------------------
+
+  function setOffline(offline) {
+    setHidden(offlineNotice, !offline);
+  }
+
+  function renderAudioNotice(state) {
+    var text = UserLogic.audioNotice(state);
+    setHidden(audioNotice, text === null);
+    audioNotice.textContent = text === null ? "" : text;
+  }
+
+  function refreshState() {
+    var seq = ++stateSeq;
+    return Common.api("GET", "/api/state").then(
+      function (state) {
+        setOffline(false);
+        if (seq < appliedSeq || !state || typeof state !== "object") return;
+        appliedSeq = seq;
+        lastState = state;
+        renderAudioNotice(state);
+        renderQueue(state);
+        panel.render(false);
+        if (!panel.isLoaded()) panel.load().catch(function () {});
+      },
+      function (err) {
+        setOffline(true);
+        throw err;
+      }
+    );
+  }
+
+  function safeRefresh() {
+    return refreshState().catch(function () {});
+  }
+
+  function handleActionError(err) {
+    panel.invalidate(); // rebuild the rows so disabled buttons come back
+    queueSig = null;
+    shuffleSig = undefined;
+    if (err && err.status === 409) {
+      Common.toast(UserLogic.conflictMessage(err, lastState), "danger");
     } else {
-      btn.classList.add('is-light');
+      Common.toast((err && err.message) || "No se pudo completar la acción.", "danger");
     }
-    btn.onclick = () => {
-      selectedCategory = cat;
-      currentPage = 1;
-      renderSongs();
-    };
-    container.appendChild(btn);
-  });
-}
-
-function updatePagination(filtered) {
-  const totalPages = Math.max(1, Math.ceil(filtered.length / songsPerPage));
-  document.getElementById('prev-page').disabled = currentPage <= 1;
-  document.getElementById('next-page').disabled = currentPage >= totalPages;
-  document.getElementById('page-info').textContent = `Página ${currentPage} de ${totalPages}`;
-}
-
-function renderSongs() {
-  renderCategories();
-
-  const term = document.getElementById('search').value.toLowerCase();
-  let filtered = allSongs.filter(s => s.toLowerCase().includes(term));
-  if (selectedCategory !== 'Todas') {
-    filtered = filtered.filter(s => s.startsWith(selectedCategory + '/'));
   }
 
-  const start = (currentPage - 1) * songsPerPage;
-  const pageSongs = filtered.slice(start, start + songsPerPage);
+  // -- upload ----------------------------------------------------------------
 
-  const tbody = document.querySelector('#song-list table tbody');
-  tbody.innerHTML = '';
-  pageSongs.forEach(song => {
-    const name = stripExtension(song.split('/').pop());
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${name}</td>
-      <td><button class="button is-small is-primary">Añadir</button></td>
-    `;
-    tr.querySelector('button').onclick = async () => {
-      await axios.post(`${API}/api/queue`, { song });
-      renderQueue();
-    };
-    tbody.appendChild(tr);
-  });
-
-  updatePagination(filtered);
-}
-
-async function renderQueue() {
-  // 1) obtenemos la lista
-  const q = await fetchQueue();
-  const tbody = document.querySelector('#queue table tbody');
-  tbody.innerHTML = '';
-  q.forEach(song => {
-    const name = stripExtension(song.split('/').pop());
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${name}</td>`;
-    tbody.appendChild(tr);
-  });
-
-  // 2) obtenemos la duración total aproximada
-  const total = await fetchQueueDuration();
-
-  // 3) mostramos conteo y tiempo
-  const count = q.length;
-  let text = `${count} canción${count !== 1 ? 'es' : ''} en la cola`;
-
-  if (total < 3600) {
-    const mins = Math.round(total / 60);
-    text += ` | Duración aprox.: ${mins} minuto${mins !== 1 ? 's' : ''}`;
-  } else {
-    const hrs = Math.floor(total / 3600);
-    const mins = Math.round((total % 3600) / 60);
-    text += ` | Duración aprox.: ${hrs} hora${hrs !== 1 ? 's' : ''}` +
-            (mins > 0 ? ` y ${mins} minuto${mins !== 1 ? 's' : ''}` : '');
+  function finishUpload() {
+    uploadInput.value = "";
+    panel.showCategory(UPLOAD_CATEGORY);
+    return Promise.all([panel.load(), refreshState()]).catch(function () {});
   }
 
-  document.getElementById('queue-info').textContent = text;
-}
-
-// Event listeners
-document.getElementById('search').addEventListener('input', () => {
-  currentPage = 1;
-  renderSongs();
-});
-document.getElementById('prev-page').addEventListener('click', () => {
-  currentPage--;
-  renderSongs();
-});
-document.getElementById('next-page').addEventListener('click', () => {
-  currentPage++;
-  renderSongs();
-});
-
-// Lógica de subida
-document.getElementById('upload-btn').onclick = async () => {
-  const input = document.getElementById('upload-input');
-  if (!input.files.length) {
-    return alert('Selecciona un archivo .mp3 o .wav');
-  }
-  const file = input.files[0];
-  const form = new FormData();
-  form.append('song', file);
-
-  try {
-    await axios.post(`${API}/api/upload`, form, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+  uploadBtn.onclick = function () {
+    if (uploadBtn.disabled) return;
+    if (!uploadInput.files || !uploadInput.files.length) {
+      Common.toast("Selecciona un archivo .mp3, .wav u .ogg", "warning");
+      return;
+    }
+    var form = new FormData();
+    form.append("song", uploadInput.files[0]);
+    if (uploadEnqueue.checked) form.append("enqueue", "1");
+    uploadBtn.disabled = true;
+    uploadBtn.textContent = "Subiendo…";
+    Common.api("POST", "/api/upload", form).then(
+      function () {
+        Common.toast("Canción subida", "success");
+        return finishUpload();
+      },
+      function (err) {
+        handleActionError(err);
+        // 409: the file was saved but not queued, so the library changed anyway.
+        if (err && err.status === 409) return finishUpload();
+      }
+    ).then(function () {
+      uploadBtn.disabled = false;
+      uploadBtn.textContent = "Subir";
     });
-    allSongs = await fetchSongs();
-    selectedCategory = 'reggaeton';
-    currentPage = 1;
-    renderSongs();
-    input.value = '';
-    alert('¡Canción subida y guardada en Reggaeton!');
-  } catch (err) {
-    console.error(err);
-    alert(err.response?.data?.error || 'Error al subir la canción');
-  }
-};
+  };
 
-// Inicialización
-(async () => {
-  allSongs = await fetchSongs();
-  renderSongs();
-  renderQueue();
-  setInterval(renderQueue, 5000);
+  panel.load().catch(function () {}); // polling retries it if this fails
+  Common.startPolling(refreshState, POLL_MS);
 })();
