@@ -482,3 +482,54 @@ def test_random_songs_do_not_use_up_the_cap(app, player, phone_a, sections):
     assert phone_a.get("/api/state").json["me"]["pending"] == 0
     for name in ("a1", "a2", "a3", "b1", "s0"):
         assert post(phone_a, "/api/queue", {"song": f"{name}.wav"}).status_code == 201
+
+
+# -- volume ---------------------------------------------------------------------------
+
+
+def test_admin_sets_the_volume_and_every_phone_sees_it(phone_a, phone_b, player):
+    login(phone_a)
+    r = post(phone_a, "/api/volume", {"volume": 35})
+    assert (r.status_code, r.json) == (200, {"volume": 35})
+    assert phone_b.get("/api/state").json["volume"] == 35
+    assert player.volume == 0.35
+
+
+def test_only_the_admin_can_set_the_volume(phone_a, player):
+    r = post(phone_a, "/api/volume", {"volume": 10})
+    assert (r.status_code, r.json["code"]) == (401, "unauthorized")
+    assert phone_a.get("/api/state").json["volume"] == 100 and player.volume == 1.0
+
+
+@pytest.mark.parametrize("bad", [-1, 101, 50.5, "50", None, True, [50]])
+def test_a_volume_that_is_not_an_integer_from_0_to_100_is_refused(phone_a, player, bad):
+    login(phone_a)
+    r = post(phone_a, "/api/volume", {"volume": bad})
+    assert (r.status_code, r.json["code"]) == (400, "bad_request")
+    assert phone_a.get("/api/state").json["volume"] == 100 and player.volume == 1.0
+
+
+@pytest.mark.parametrize("body", [{}, {"loudness": 5}])
+def test_a_volume_request_without_the_volume_is_refused(phone_a, body):
+    login(phone_a)
+    assert post(phone_a, "/api/volume", body).status_code == 400
+
+
+def test_a_volume_request_that_is_not_json_is_refused(phone_a):
+    login(phone_a)
+    r = phone_a.post("/api/volume", data="loud", content_type="text/plain")
+    assert (r.status_code, r.json["code"]) == (400, "bad_request")
+
+
+@pytest.mark.parametrize("edge", [0, 100])
+def test_the_limits_are_accepted(phone_a, edge):
+    login(phone_a)
+    assert post(phone_a, "/api/volume", {"volume": edge}).json == {"volume": edge}
+
+
+def test_volume_zero_does_not_stop_the_songs(app, phone_a, player, songs):
+    login(phone_a)
+    post(phone_a, "/api/volume", {"volume": 0})
+    post(phone_a, "/api/queue", {"song": "a1.wav"})
+    app.extensions["engine"].tick()
+    assert player.volume == 0.0 and len(player.played) == 1

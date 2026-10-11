@@ -176,6 +176,17 @@ def skip():
     return jsonify({"status": "skipped"})
 
 
+@bp.post("/api/volume")
+def set_volume():
+    require_admin()
+    volume = json_object().get("volume")
+    # the engine and pygame trust this check: pygame ignores negative levels and only clamps above 1.0
+    if not isinstance(volume, int) or isinstance(volume, bool) or not 0 <= volume <= 100:
+        raise ApiError(400, "bad_request", "El volumen debe ser un número entero de 0 a 100.")
+    _engine().set_volume(volume)
+    return jsonify({"volume": volume})
+
+
 # -- upload -------------------------------------------------------------------------
 
 
