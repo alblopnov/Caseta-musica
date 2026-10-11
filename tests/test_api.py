@@ -1,7 +1,10 @@
+import dataclasses
 import io
 import json
 
 import pytest
+
+from caseta import create_app
 
 
 def post(c, url, body):
@@ -265,10 +268,17 @@ def test_songs_lists_library(phone_a, songs):
 
 def test_state_shape_and_unknown_route_json(phone_a):
     s = phone_a.get("/api/state").json
-    assert set(s) == {"now_playing", "queue", "total_seconds", "me", "audio_ok", "shuffle"}
+    assert set(s) == {"now_playing", "queue", "total_seconds", "me", "audio_ok", "shuffle", "volume"}
     assert phone_a.get("/api/nope").json["error"]
     r = phone_a.get("/api/nope")
     assert (r.status_code, r.json["code"]) == (404, "not_found")
+
+
+def test_the_state_reports_the_configured_starting_volume(config, player):
+    cfg = dataclasses.replace(config, volume_percent=30)
+    client = create_app(cfg, player=player, start_engine=False).test_client()
+    assert client.get("/api/state").json["volume"] == 30
+    assert player.volume == 0.3
 
 
 def test_method_not_allowed_is_json(phone_a):

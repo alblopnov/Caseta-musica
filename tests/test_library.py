@@ -143,6 +143,18 @@ def test_from_env_defaults():
     assert c.secret_key
 
 
+def test_from_env_reads_the_volume():
+    for raw, want in (("40", 40), ("0", 0), ("100", 100)):
+        assert Config.from_env({"CASETA_VOLUME": raw}).volume_percent == want
+    assert Config.from_env({}).volume_percent == 100  # unset = full, as before this feature
+
+
+@pytest.mark.parametrize("bad", ["-1", "101", "loud", "50.5"])
+def test_from_env_rejects_a_volume_outside_0_to_100(bad):
+    with pytest.raises(ValueError, match="CASETA_VOLUME"):
+        Config.from_env({"CASETA_VOLUME": bad})
+
+
 def test_from_env_allowed_hosts_default():
     assert Config.from_env({}).allowed_hosts == Config().allowed_hosts
     assert Config.from_env({"CASETA_ALLOWED_HOSTS": " , "}).allowed_hosts == Config().allowed_hosts

@@ -164,7 +164,23 @@ def test_empty_snapshot_shape(engine):
         "me": {"pending": 0, "max": 5},
         "audio_ok": True,
         "shuffle": None,
+        "volume": 100,
     }
+
+
+def test_the_engine_starts_at_the_volume_it_is_given(engine_factory, player):
+    engine = engine_factory(player, volume_percent=40)
+    assert (player.volume, engine.snapshot("A")["volume"]) == (0.4, 40)
+
+
+def test_set_volume_reaches_the_player_as_a_fraction_and_shows_in_the_state(engine, player):
+    engine.set_volume(35)
+    assert (player.volume, engine.snapshot("A")["volume"]) == (0.35, 35)
+
+
+def test_changing_the_volume_does_not_interrupt_the_song_playing(engine, player, add):
+    add("a.wav", "A"); engine.tick(); engine.set_volume(20)
+    assert player.playing and len(player.played) == 1
 
 
 def test_owner_can_remove_own_playing_song_other_cannot(engine, player, add):
