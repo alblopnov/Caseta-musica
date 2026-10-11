@@ -37,6 +37,7 @@ class PlaybackEngine:
         poll_interval: float = 0.25,
         audio_retry_seconds: float | None = None,
         rng: random.Random | None = None,
+        volume_percent: int = 100,
     ):
         self._queue = queue
         self._player = player
@@ -59,6 +60,8 @@ class PlaybackEngine:
         self._started_at = 0.0
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
+        self._volume_percent = volume_percent
+        self._player.set_volume(volume_percent / 100)
 
     # -- background thread -------------------------------------------------
 
@@ -240,6 +243,14 @@ class PlaybackEngine:
         with self._lock:
             self._queue.move(item_id, position)
 
+    def set_volume(self, percent: int) -> None:
+        """Set the music volume (0 to 100, validated by the caller) without touching the song.
+
+        Held under the same lock as tick(), so it never lands in the middle of a song start."""
+        with self._lock:
+            self._player.set_volume(percent / 100)
+            self._volume_percent = percent
+
     # -- state -------------------------------------------------------------
 
     def snapshot(self, viewer: str, is_admin: bool = False) -> dict:
@@ -283,4 +294,5 @@ class PlaybackEngine:
                 },
                 "audio_ok": not self._audio_down,
                 "shuffle": self._shuffle_info(viewer, is_admin),
+                "volume": self._volume_percent,
             }

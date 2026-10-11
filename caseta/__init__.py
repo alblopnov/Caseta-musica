@@ -39,7 +39,9 @@ def create_app(
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
     library = Library(config)
-    engine = PlaybackEngine(SongQueue(config.max_pending_per_user), player, library)
+    engine = PlaybackEngine(
+        SongQueue(config.max_pending_per_user), player, library, volume_percent=config.volume_percent
+    )
     app.extensions["config"] = config
     app.extensions["library"] = library
     app.extensions["engine"] = engine

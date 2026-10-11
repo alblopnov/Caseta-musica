@@ -165,7 +165,23 @@ def test_empty_snapshot_shape(engine):
         "me": {"pending": 0, "max": 5},
         "audio_ok": True,
         "shuffle": None,
+        "volume": 100,
     }
+
+
+def test_the_engine_starts_at_the_volume_it_is_given(engine_factory, player):
+    engine = engine_factory(player, volume_percent=40)
+    assert (player.volume, engine.snapshot("A")["volume"]) == (0.4, 40)
+
+
+def test_set_volume_reaches_the_player_as_a_fraction_and_shows_in_the_state(engine, player):
+    engine.set_volume(35)
+    assert (player.volume, engine.snapshot("A")["volume"]) == (0.35, 35)
+
+
+def test_changing_the_volume_does_not_interrupt_the_song_playing(engine, player, add):
+    add("a.wav", "A"); engine.tick(); engine.set_volume(20)
+    assert player.playing and len(player.played) == 1
 
 
 def test_owner_can_remove_own_playing_song_other_cannot(engine, player, add):
@@ -528,6 +544,41 @@ def test_pygame_player_imports_and_constructs_without_audio_device():
 
     p = PygamePlayer()
     assert p.is_playing() is False
+
+
+@pytest.fixture
+def dummy_audio(monkeypatch):
+    """A real pygame mixer on the silent SDL dummy driver, shut down afterwards."""
+    import pygame
+
+    monkeypatch.setenv("SDL_AUDIODRIVER", "dummy")
+    yield pygame
+    pygame.mixer.quit()
+
+
+def test_pygame_player_applies_a_volume_set_before_the_mixer_started(dummy_audio, songs):
+    from caseta.player import PygamePlayer
+
+    p = PygamePlayer(); p.set_volume(0.3); p.play(songs / "a.wav")
+    assert dummy_audio.mixer.music.get_volume() == pytest.approx(0.3, abs=0.01)
+
+
+def test_pygame_player_keeps_the_volume_when_the_next_song_loads(dummy_audio, songs, monkeypatch):
+    from caseta.player import PygamePlayer
+
+    # pygame documents that load() resets the volume to full; simulate that on top of the real load
+    real_load = dummy_audio.mixer.music.load
+    monkeypatch.setattr(dummy_audio.mixer.music, "load",
+                        lambda path: (real_load(path), dummy_audio.mixer.music.set_volume(1.0)))
+    p = PygamePlayer(); p.set_volume(0.3); p.play(songs / "a.wav"); p.play(songs / "b.wav")
+    assert dummy_audio.mixer.music.get_volume() == pytest.approx(0.3, abs=0.01)
+
+
+def test_pygame_player_set_volume_changes_the_song_already_playing(dummy_audio, songs):
+    from caseta.player import PygamePlayer
+
+    p = PygamePlayer(); p.play(songs / "a.wav"); p.set_volume(0.5)
+    assert dummy_audio.mixer.music.get_volume() == pytest.approx(0.5, abs=0.01)
 
 
 # -- admin is not limited by the cap -------------------------------------------

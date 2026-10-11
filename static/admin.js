@@ -17,6 +17,7 @@
   var skipPending = false;
   var renderedQueue = []; // queue items as drawn: drop positions are computed on these
   var dragging = null; // id of the queued row being dragged; freezes the queue DOM
+  var volumeBusy = false; // the admin is moving or saving the volume slider; polls leave it alone
 
   var offlineNotice = document.getElementById("offline-notice");
   var audioNotice = document.getElementById("audio-notice");
@@ -29,6 +30,8 @@
   var skipBtn = document.getElementById("skip-btn");
   var queueBox = document.getElementById("queue");
   var summaryBox = document.getElementById("queue-info");
+  var volumeSlider = document.getElementById("volume-slider");
+  var volumeValue = document.getElementById("volume-value");
 
   // The skip button lives in the template (so it has an id) and is moved into the player card.
   var player = NowPlaying.create({ controls: [skipBtn] });
@@ -338,6 +341,39 @@
     });
   });
 
+  // -- volume -------------------------------------------------------------------
+
+  // Puts the slider on the server's volume, unless the admin is moving it.
+  function renderVolume(state) {
+    var volume = AdminLogic.volumeOf(state);
+    if (volumeBusy || volume === null) return;
+    volumeSlider.value = String(volume);
+    volumeValue.textContent = AdminLogic.volumeLabel(volume);
+  }
+
+  // While dragging only the label follows; the request goes out once, on release.
+  volumeSlider.addEventListener("input", function () {
+    volumeBusy = true;
+    volumeValue.textContent = AdminLogic.volumeLabel(Number(volumeSlider.value));
+  });
+
+  volumeSlider.addEventListener("change", function () {
+    volumeBusy = true;
+    Common.api("POST", "/api/volume", { volume: Number(volumeSlider.value) }).then(
+      function () { volumeBusy = false; },
+      function (err) {
+        volumeBusy = false;
+        // The state GET below fails too when the server is down, so put the
+        // slider back on the last known server value now (no-op before any state).
+        renderVolume(lastState);
+        handleActionError(err);
+      }
+    ).then(function () {
+      // Either way the slider goes back to what the server says it is.
+      return safeRefresh();
+    });
+  });
+
   // -- state / polling -------------------------------------------------------------
 
   function setOffline(offline) {
@@ -359,6 +395,7 @@
         appliedSeq = seq;
         lastState = state;
         renderAudioNotice(state); // outside the queue box: safe during a drag
+        renderVolume(state);
         if (dragging === null) renderQueue(state); // never rebuild rows under a drag
         panel.render(false);
         if (!panel.isLoaded()) panel.load().catch(function () {});

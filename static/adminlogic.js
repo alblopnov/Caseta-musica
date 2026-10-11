@@ -1,6 +1,7 @@
 // Pure helpers for the admin page (reorder position, PIN error texts, which
-// rows can be dragged). Classic script: defines the global `AdminLogic` in the
-// browser and exports it under node for the frontend tests.
+// rows can be dragged, the volume slider's value and label). Classic script:
+// defines the global `AdminLogic` in the browser and exports it under node for
+// the frontend tests.
 var AdminLogic = (function () {
   var SESSION_EXPIRED_MESSAGE = "La sesión de administrador caducó. Introduce el PIN otra vez.";
 
@@ -46,12 +47,26 @@ var AdminLogic = (function () {
     return !!err && (err.status === 401 || err.status === 403);
   }
 
+  // Text beside the volume slider: 0 is silence, anything else the percentage.
+  function volumeLabel(percent) {
+    return percent === 0 ? "Silencio" : percent + "%";
+  }
+
+  // The volume in /api/state when it is a whole number from 0 to 100, else null
+  // (an older server, or a bad payload, leaves the slider alone).
+  function volumeOf(state) {
+    var volume = state ? state.volume : undefined;
+    return Number.isInteger(volume) && volume >= 0 && volume <= 100 ? volume : null;
+  }
+
   return {
     SESSION_EXPIRED_MESSAGE: SESSION_EXPIRED_MESSAGE,
     movePosition: movePosition,
     isDraggable: isDraggable,
     pinErrorMessage: pinErrorMessage,
     isSessionError: isSessionError,
+    volumeLabel: volumeLabel,
+    volumeOf: volumeOf,
   };
 })();
 

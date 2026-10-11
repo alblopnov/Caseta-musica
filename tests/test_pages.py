@@ -106,3 +106,11 @@ def test_both_pages_have_the_shuffle_toggle_and_the_status_bar(phone_a):
         assert "Aleatorio" in html, url
         # the button sits with the section chips, before the song list
         assert html.index('id="categories"') < html.index('id="shuffle-btn"') < html.index('id="song-list"'), url
+
+
+def test_only_the_admin_page_has_the_volume_slider(phone_a):
+    admin = phone_a.get("/albertitoeselmejor").get_data(as_text=True)
+    for needle in ('id="volume-slider"', 'type="range"', 'id="volume-value"', "Volumen"):
+        assert needle in admin, needle
+    assert admin.index('id="now-playing"') < admin.index('id="volume-slider"') < admin.index('id="queue"')
+    assert "volume-slider" not in phone_a.get("/").get_data(as_text=True)

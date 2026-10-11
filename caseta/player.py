@@ -18,6 +18,10 @@ class Player(Protocol):
 
     def is_playing(self) -> bool: ...
 
+    def set_volume(self, level: float) -> None:
+        """0.0 is silent, 1.0 is full volume."""
+        ...
+
 
 class PygamePlayer:
     """Plays through pygame.mixer. The mixer is initialised on the first `play`,
@@ -25,6 +29,7 @@ class PygamePlayer:
 
     def __init__(self) -> None:
         self._ready = False
+        self._volume = 1.0
 
     def _ensure_mixer(self):
         import pygame
@@ -40,6 +45,7 @@ class PygamePlayer:
         except Exception as exc:  # no device / no driver: retry on the next play
             raise PlayerUnavailable(f"audio output unavailable: {exc}") from exc
         pygame.mixer.music.load(str(path))  # a bad file raises an ordinary error
+        pygame.mixer.music.set_volume(self._volume)  # load() may reset it to full
         pygame.mixer.music.play()
 
     def stop(self) -> None:
@@ -55,3 +61,12 @@ class PygamePlayer:
         import pygame
 
         return bool(pygame.mixer.music.get_busy())
+
+    def set_volume(self, level: float) -> None:
+        """Remember the level for every later song and apply it now if the mixer is up."""
+        self._volume = level
+        if not self._ready:
+            return
+        import pygame
+
+        pygame.mixer.music.set_volume(level)

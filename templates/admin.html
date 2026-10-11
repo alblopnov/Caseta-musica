@@ -72,6 +72,14 @@
           <h2 id="queue-title" class="panel-title">Cola de reproducción</h2>
           <div id="shuffle-status" class="shuffle-status is-hidden" role="status"></div>
         <div id="now-playing"></div>
+          <!-- Volumen de la música: solo el administrador lo cambia (admin.js) -->
+          <div class="panel volume-panel">
+            <div class="volume-head">
+              <label class="field-label" for="volume-slider">Volumen</label>
+              <span id="volume-value" class="meta">100%</span>
+            </div>
+            <input id="volume-slider" class="volume-slider" type="range" min="0" max="100" step="1" value="100">
+          </div>
           <div class="panel panel-queue">
             <div id="queue" class="queue-list">
               <div class="skeleton"></div>

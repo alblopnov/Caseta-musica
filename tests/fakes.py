@@ -13,6 +13,7 @@ class FakePlayer:
         self.fail_next = False
         self.unavailable = False  # True: every play raises PlayerUnavailable (no audio device)
         self.attempts = 0
+        self.volume = 1.0  # the last level set
 
     def play(self, path: Path) -> None:
         self.attempts += 1
@@ -32,3 +33,6 @@ class FakePlayer:
 
     def is_playing(self) -> bool:
         return self.playing
+
+    def set_volume(self, level: float) -> None:
+        self.volume = level

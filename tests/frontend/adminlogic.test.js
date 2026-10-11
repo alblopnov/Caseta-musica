@@ -67,3 +67,17 @@ test("isSessionError: 401 and 403 mean the admin cookie may be gone", () => {
   assert.equal(AdminLogic.isSessionError({ status: 0 }), false);
   assert.equal(AdminLogic.isSessionError(null), false);
 });
+
+test("volumeLabel: 0 reads as silence, anything else as a percentage", () => {
+  assert.equal(AdminLogic.volumeLabel(0), "Silencio");
+  assert.equal(AdminLogic.volumeLabel(35), "35%");
+  assert.equal(AdminLogic.volumeLabel(100), "100%");
+});
+
+test("volumeOf: the state's volume, or null when it is missing or not a whole 0-100", () => {
+  assert.equal(AdminLogic.volumeOf({ volume: 35 }), 35);
+  assert.equal(AdminLogic.volumeOf({ volume: 0 }), 0);
+  for (const bad of [{}, null, undefined, { volume: "35" }, { volume: -1 }, { volume: 101 }, { volume: 3.5 }, { volume: NaN }]) {
+    assert.equal(AdminLogic.volumeOf(bad), null);
+  }
+});
