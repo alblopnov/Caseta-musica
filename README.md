@@ -41,6 +41,7 @@ All settings are environment variables. Only `CASETA_ADMIN_PIN` is needed for a 
 | `CASETA_PORT` | `5000` | TCP port the server listens on (all interfaces). The planned Pi setup uses 80. |
 | `CASETA_SONG_DIR` | `songs` | Folder that holds the music, relative to the working directory or absolute. |
 | `CASETA_ALLOWED_HOSTS` | unset | Extra host names to serve instead of redirecting, comma-separated (for example `jukebox.lan,mi-pc`). Spaces are trimmed, case is ignored, empty items are skipped. They are added to the built-in `localhost`, `127.0.0.1`, `10.42.0.1` and `caseta.local`. IP addresses never need listing. |
+| `CASETA_VOLUME` | `100` | Starting volume of the music, 0 to 100. The admin changes it from the admin page; the change is not saved, so a restart returns to this value. It scales pygame's output and does not change the Pi's system volume, so set the system volume for the loudest the speakers should get. Must be an integer from 0 to 100. |
 
 An invalid value (for example `CASETA_PORT=abc`) makes `app.py` print an error and exit with status 2.
 
@@ -58,7 +59,7 @@ An invalid value (for example `CASETA_PORT=abc`) makes `app.py` print an error a
   - **Random songs do not use the cap** (they are never in the queue). The starter can skip a random song they dislike with "Quitar", like any song of their own, and the loop carries on with the next one.
   - If the audio output is unavailable, shuffle waits like the rest of the queue. If the section runs out of songs (files deleted), shuffle turns itself off. The mode is kept in memory only and ends when the server restarts.
 - **No cutting in line.** Clients cannot choose a position; any `position` sent when adding is ignored. Only the admin can reorder.
-- **Admin.** The admin page is at `/albertitoeselmejor` (it is not linked from the main page). Logging in needs `CASETA_ADMIN_PIN`. After 5 wrong PINs from the same IP address, that address is locked out for 60 seconds. The admin can skip the current song, remove any song, and move a song to any position. Songs added later always go to the end. The admin login is a browser-session cookie: it ends when the browser is closed or the server restarts.
+- **Admin.** The admin page is at `/albertitoeselmejor` (it is not linked from the main page). Logging in needs `CASETA_ADMIN_PIN`. After 5 wrong PINs from the same IP address, that address is locked out for 60 seconds. The admin can skip the current song, remove any song, move a song to any position, and set the volume. Songs added later always go to the end. The admin login is a browser-session cookie: it ends when the browser is closed or the server restarts.
 
 ## API summary
 
@@ -69,7 +70,7 @@ All API errors are JSON: `{"error": "<Spanish message>", "code": "<code>"}`.
 | GET | `/` | anyone (user page) |
 | GET | `/albertitoeselmejor` | anyone (admin page; login happens inside it) |
 | GET | `/api/songs` | anyone (list of available songs) |
-| GET | `/api/state` | anyone (now playing, queue with ETAs, your pending count and cap (`null` for the admin), `audio_ok`, and `shuffle`: `null` or `{category, can_stop}`) |
+| GET | `/api/state` | anyone (now playing, queue with ETAs, your pending count and cap (`null` for the admin), `audio_ok`, `volume` (0 to 100) and `shuffle`: `null` or `{category, can_stop}`) |
 | POST | `/api/queue` | anyone (body `{"song": "<Category>/file.mp3"}`) |
 | DELETE | `/api/queue/<id>` | the phone that added it, or the admin |
 | POST | `/api/shuffle` | anyone when shuffle is off; when it is on, only the phone that started it or the admin (body `{"category": "Todas"}` or a section name; turns shuffle on or switches its section) |
@@ -79,6 +80,7 @@ All API errors are JSON: `{"error": "<Spanish message>", "code": "<code>"}`.
 | GET | `/api/admin/session` | anyone (reports whether this browser is admin) |
 | POST | `/api/queue/<id>/move` | admin only (body `{"position": <int>}`, 1 = next) |
 | POST | `/api/skip` | admin only |
+| POST | `/api/volume` | admin only (body `{"volume": 0-100}`) |
 
 ## Running
 
