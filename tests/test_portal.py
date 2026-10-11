@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -105,8 +106,8 @@ def entry(monkeypatch, tmp_path, player):
     import app as entry_module
     import caseta
 
-    for name in ("CASETA_ADMIN_PIN", "CASETA_PORT", "CASETA_MAX_PENDING", "CASETA_MAX_UPLOAD_MB", "CASETA_ALLOWED_HOSTS"):
-        monkeypatch.delenv(name, raising=False)
+    for name in [name for name in os.environ if name.startswith("CASETA_")]:
+        monkeypatch.delenv(name)
     monkeypatch.setenv("CASETA_SONG_DIR", str(tmp_path / "songs"))
 
     real_create_app = caseta.create_app
