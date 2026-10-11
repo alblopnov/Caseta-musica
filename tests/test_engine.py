@@ -1,9 +1,10 @@
 import random
+import shutil
 import time
 
 import pytest
 
-from caseta.engine import EmptyCategory, PlaybackEngine, ShuffleLocked
+from caseta.engine import EmptyCategory, PlaybackEngine, RecentlyPlayed, ShuffleLocked
 from caseta.song_queue import DuplicateSong, NotOwner, QueueFull, SongQueue, UnknownItem
 from caseta.library import SongNotFound
 from tests.conftest import make_wav
@@ -758,3 +759,134 @@ def test_the_injected_rng_drives_the_order(engine_factory, player, clock, tree):
     different = engine_factory(third_player, clock, rng=random.Random(2))
     different.start_shuffle("Rock", "A")
     assert played_songs(different, third_player, tree, 7) != first
+
+
+# -- no repeated songs: copies are one song, and a song that played rests for a while -----------
+
+REPLAY_BLOCK = 100.0
+
+
+@pytest.fixture
+def replay_engine(engine_factory, player, clock):
+    return engine_factory(player, clock, replay_block_seconds=REPLAY_BLOCK)
+
+
+def copy_song(root, src, dst):
+    shutil.copy(root / src, root / dst)
+
+
+def play_by_hand(engine, player, song, owner="B"):
+    """Queue a song, let it start and finish."""
+    engine.enqueue(song, owner)
+    engine.tick()
+    player.finish()
+
+
+def test_a_copy_of_a_waiting_song_counts_as_the_same_song(engine, songs):
+    copy_song(songs, "a1.wav", "a1-copy.wav")
+    engine.enqueue("a1.wav", "A")
+    with pytest.raises(DuplicateSong):
+        engine.enqueue("a1-copy.wav", "B")
+    assert [i["song"] for i in engine.snapshot("A")["queue"]] == ["a1.wav"]
+
+
+def test_a_song_that_just_played_cannot_be_added_again_by_anyone(replay_engine, player, clock):
+    replay_engine.enqueue("a1.wav", "A")
+    replay_engine.tick()  # a1 is playing now
+    clock[0] = 30.0
+    with pytest.raises(RecentlyPlayed) as exc:
+        replay_engine.enqueue("a1.wav", "B")
+    assert exc.value.remaining_seconds == 70
+    player.finish()
+    with pytest.raises(RecentlyPlayed):
+        replay_engine.enqueue("a1.wav", "A")  # still blocked after it ended, for its owner too
+
+
+def test_a_copy_of_a_song_that_just_played_is_blocked_too(replay_engine, player, songs):
+    copy_song(songs, "a1.wav", "a1-copy.wav")
+    play_by_hand(replay_engine, player, "a1.wav")
+    with pytest.raises(RecentlyPlayed):
+        replay_engine.enqueue("a1-copy.wav", "A")
+
+
+def test_a_song_can_be_added_again_once_the_cooldown_has_passed(replay_engine, player, clock):
+    play_by_hand(replay_engine, player, "a1.wav")
+    clock[0] = 99.0
+    with pytest.raises(RecentlyPlayed):
+        replay_engine.enqueue("a1.wav", "A")
+    clock[0] = 100.0
+    replay_engine.enqueue("a1.wav", "A")
+
+
+def test_a_song_that_just_played_does_not_block_other_songs(replay_engine, player):
+    play_by_hand(replay_engine, player, "a1.wav")
+    replay_engine.enqueue("a2.wav", "A")
+
+
+def test_the_admin_can_add_a_song_that_just_played(replay_engine, player):
+    play_by_hand(replay_engine, player, "a1.wav")
+    item = replay_engine.enqueue("a1.wav", "ADMIN", is_admin=True)
+    assert item.song == "a1.wav"
+
+
+def test_with_the_block_turned_off_a_played_song_can_be_added_at_once(engine_factory, player, clock):
+    engine = engine_factory(player, clock, replay_block_seconds=0)
+    play_by_hand(engine, player, "a1.wav")
+    engine.enqueue("a1.wav", "A")
+
+
+def test_a_song_that_failed_to_play_does_not_count_as_played(replay_engine, player):
+    player.fail_next = True
+    replay_engine.enqueue("a1.wav", "A")
+    replay_engine.tick()  # unreadable: dropped
+    assert player.played == []
+    replay_engine.enqueue("a1.wav", "A")
+
+
+@pytest.mark.parametrize("seed", range(6))
+def test_shuffle_skips_a_song_that_just_played(engine_factory, player, clock, tree, seed):
+    engine = engine_factory(player, clock, rng=random.Random(seed), replay_block_seconds=REPLAY_BLOCK)
+    play_by_hand(engine, player, "Pop/p2.wav")
+    engine.start_shuffle("Pop", "A")
+    assert sorted(played_songs(engine, player, tree, 2)) == ["Pop/p1.wav", "Pop/p3.wav"]
+
+
+@pytest.mark.parametrize("seed", range(6))
+def test_shuffle_skips_a_copy_of_a_song_that_just_played(engine_factory, player, clock, tree, seed):
+    copy_song(tree, "Pop/p2.wav", "Pop/p2-copy.wav")
+    engine = engine_factory(player, clock, rng=random.Random(seed), replay_block_seconds=REPLAY_BLOCK)
+    play_by_hand(engine, player, "Pop/p2.wav")
+    engine.start_shuffle("Pop", "A")
+    assert sorted(played_songs(engine, player, tree, 2)) == ["Pop/p1.wav", "Pop/p3.wav"]
+
+
+def test_shuffle_goes_on_with_the_song_that_rested_longest_when_all_just_played(
+    engine_factory, player, clock, tree
+):
+    engine = engine_factory(player, clock, rng=random.Random(1), replay_block_seconds=REPLAY_BLOCK)
+    for second, song in enumerate(("Pop/p1.wav", "Pop/p2.wav", "Pop/p3.wav")):
+        clock[0] = float(second * 10)
+        play_by_hand(engine, player, song)
+    engine.start_shuffle("Pop", "A")
+    assert played_songs(engine, player, tree, 1) == ["Pop/p1.wav"]  # played first, so rested longest
+
+
+def test_a_song_shuffle_played_cannot_be_added_by_hand(engine_factory, player, clock, tree):
+    engine = engine_factory(player, clock, rng=random.Random(1), replay_block_seconds=REPLAY_BLOCK)
+    engine.start_shuffle("Pop", "A")
+    (song,) = played_songs(engine, player, tree, 1)
+    with pytest.raises(RecentlyPlayed):
+        engine.enqueue(song, "B")
+
+
+def test_shuffle_opens_only_the_songs_it_needs_to_decide(engine_factory, player, clock, tree, monkeypatch):
+    """Telling whether a song played recently means reading it; a big section must not be read in full."""
+    import caseta.library as library_module
+
+    opened = []
+    real = library_module.hash_file
+    monkeypatch.setattr(library_module, "hash_file", lambda path: opened.append(path) or real(path))
+    engine = engine_factory(player, clock, rng=random.Random(1), replay_block_seconds=REPLAY_BLOCK)
+    engine.start_shuffle("Rock", "A")  # seven songs
+    engine.tick()
+    assert len(opened) == 1  # only the song it plays

@@ -1,6 +1,7 @@
 import io
 import os
 import re
+import shutil
 
 import pytest
 from werkzeug.datastructures import FileStorage
@@ -215,3 +216,92 @@ def test_resolve_symlink_loop_runtime_error_is_not_found(library, config, monkey
     monkeypatch.setattr("pathlib.Path.resolve", loop)
     with pytest.raises(SongNotFound):
         library.resolve("a.wav")
+
+
+# -- song identity: the same recording is one song, whatever its path ---------------------
+
+
+def _copy_song(config, src: str, dst: str):
+    target = config.song_folder / dst
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(config.song_folder / src, target)
+
+
+def test_content_key_is_equal_for_a_copy_in_another_folder(library, config):
+    make_wav(config.song_folder / "Flamenquito" / "x.wav", 1)
+    _copy_song(config, "Flamenquito/x.wav", "Reggaeton/same song, other name.wav")
+    assert library.content_key("Flamenquito/x.wav") == library.content_key("Reggaeton/same song, other name.wav")
+
+
+def test_content_key_differs_for_different_recordings_of_the_same_length(library, config):
+    make_wav(config.song_folder / "a.wav", 1)
+    make_wav(config.song_folder / "b.wav", 1)  # same length and size, different samples
+    assert library.content_key("a.wav") != library.content_key("b.wav")
+
+
+def test_content_key_follows_the_file_when_its_content_changes(library, config):
+    path = make_wav(config.song_folder / "a.wav", 1)
+    before = library.content_key("a.wav")
+    make_wav(path, 2)  # the file is replaced by a longer recording
+    assert library.content_key("a.wav") != before
+
+
+def test_content_key_of_an_unknown_song_is_not_found(library, config):
+    make_wav(config.song_folder / "a.wav", 1)
+    with pytest.raises(SongNotFound):
+        library.content_key("missing.wav")
+
+
+def test_find_identical_returns_the_other_copy(library, config):
+    make_wav(config.song_folder / "Flamenquito" / "x.wav", 1)
+    make_wav(config.song_folder / "Flamenquito" / "other.wav", 1)
+    _copy_song(config, "Flamenquito/x.wav", "Subidas/x.wav")
+    assert library.find_identical("Subidas/x.wav") == "Flamenquito/x.wav"
+
+
+def test_find_identical_ignores_a_file_of_the_same_size_with_other_content(library, config):
+    make_wav(config.song_folder / "a.wav", 1)
+    make_wav(config.song_folder / "b.wav", 1)
+    assert library.find_identical("b.wav") is None
+
+
+def test_find_identical_never_answers_with_the_song_itself(library, config):
+    make_wav(config.song_folder / "a.wav", 1)
+    assert library.find_identical("a.wav") is None
+
+
+def test_from_env_reads_the_replay_block_in_minutes():
+    assert Config.from_env({"CASETA_REPLAY_BLOCK_MINUTES": "45"}).replay_block_minutes == 45
+
+
+def test_from_env_accepts_zero_to_turn_the_replay_block_off():
+    assert Config.from_env({"CASETA_REPLAY_BLOCK_MINUTES": "0"}).replay_block_minutes == 0
+
+
+@pytest.mark.parametrize("bad", ["-1", "soon", "1.5"])
+def test_from_env_rejects_an_invalid_replay_block(bad):
+    with pytest.raises(ValueError, match="CASETA_REPLAY_BLOCK_MINUTES"):
+        Config.from_env({"CASETA_REPLAY_BLOCK_MINUTES": bad})
+
+
+def test_drop_if_duplicate_removes_the_new_copy_and_names_the_old_one(library, config):
+    make_wav(config.song_folder / "Flamenquito" / "x.wav", 1)
+    _copy_song(config, "Flamenquito/x.wav", "Subidas/x.wav")
+    assert library.drop_if_duplicate("Subidas/x.wav") == "Flamenquito/x.wav"
+    assert not (config.song_folder / "Subidas" / "x.wav").exists()
+    assert (config.song_folder / "Flamenquito" / "x.wav").exists()
+
+
+def test_drop_if_duplicate_keeps_a_song_nothing_else_matches(library, config):
+    make_wav(config.song_folder / "a.wav", 1)
+    make_wav(config.song_folder / "Subidas" / "new.wav", 1)
+    assert library.drop_if_duplicate("Subidas/new.wav") is None
+    assert (config.song_folder / "Subidas" / "new.wav").exists()
+
+
+def test_two_identical_uploads_never_both_disappear(library, config):
+    make_wav(config.song_folder / "Subidas" / "one.wav", 1)
+    _copy_song(config, "Subidas/one.wav", "Subidas/two.wav")
+    assert library.drop_if_duplicate("Subidas/one.wav") == "Subidas/two.wav"
+    assert library.drop_if_duplicate("Subidas/two.wav") is None  # the last copy stays
+    assert library.list_songs() == ["Subidas/two.wav"]

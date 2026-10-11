@@ -269,3 +269,26 @@ test("emptyQueueText says what happens next", () => {
     hint: "Aleatorio activo: Reggaeton. Lo que añadas sonará antes.",
   });
 });
+
+test("uploadOutcome: a new song is reported as uploaded and the uploads section is shown", () => {
+  assert.deepEqual(UserLogic.uploadOutcome({ song: "Subidas/n.mp3", existing: false }, "Subidas"), {
+    message: "Canción subida",
+    kind: "success",
+    category: "Subidas",
+  });
+});
+
+test("uploadOutcome: a song the library already had is reported so and its own section is shown", () => {
+  assert.deepEqual(UserLogic.uploadOutcome({ song: "Flamenquito/x.mp3", existing: true }, "Subidas"), {
+    message: "Esa canción ya estaba en la biblioteca",
+    kind: "info",
+    category: "Flamenquito",
+  });
+  // a song at the root of the library only shows under "Todas"
+  assert.equal(UserLogic.uploadOutcome({ song: "x.mp3", existing: true }, "Subidas").category, "Todas");
+});
+
+test("uploadOutcome: an answer without `existing` (older server) counts as a new song", () => {
+  assert.equal(UserLogic.uploadOutcome({ song: "Subidas/n.mp3" }, "Subidas").message, "Canción subida");
+  assert.equal(UserLogic.uploadOutcome(null, "Subidas").category, "Subidas");
+});

@@ -8,7 +8,8 @@ import time
 from typing import Callable
 from uuid import uuid4
 
-from caseta.song_queue import NotOwner, QueueFull, QueueItem, SongQueue
+from caseta.history import PlayHistory
+from caseta.song_queue import DuplicateSong, NotOwner, QueueFull, QueueItem, SongQueue
 from caseta.library import Library
 from caseta.player import Player, PlayerUnavailable
 
@@ -21,6 +22,15 @@ class EmptyCategory(Exception):
 
 class ShuffleLocked(Exception):
     """Shuffle was started by another phone; only that phone or the admin can change it."""
+
+
+class RecentlyPlayed(Exception):
+    """The song (or an identical copy) played a short while ago and rests until `remaining_seconds` pass."""
+
+    def __init__(self, song: str, remaining_seconds: float):
+        super().__init__(song)
+        self.song = song
+        self.remaining_seconds = remaining_seconds
 
 
 class PlaybackEngine:
@@ -37,11 +47,15 @@ class PlaybackEngine:
         poll_interval: float = 0.25,
         audio_retry_seconds: float | None = None,
         rng: random.Random | None = None,
+        replay_block_seconds: float = 0.0,
     ):
         self._queue = queue
         self._player = player
         self._library = library
         self._clock = clock
+        # What played recently, by content key, so a song (or a copy of it) that just
+        # played cannot be added again and shuffle prefers songs that rested longer.
+        self._history = PlayHistory(replay_block_seconds, clock)
         self._poll_interval = poll_interval
         self._audio_retry_seconds = (
             self.AUDIO_RETRY_SECONDS if audio_retry_seconds is None else audio_retry_seconds
@@ -134,6 +148,7 @@ class PlaybackEngine:
             self._current = item
             self._last_song = item.song
             self._started_at = self._clock()
+            self._history.record(self._key(item.song))
 
     def _audio_ok_again(self) -> None:
         """The player got past opening the device: any outage is over."""
@@ -147,9 +162,23 @@ class PlaybackEngine:
 
     # -- commands ----------------------------------------------------------
 
+    def _key(self, song: str) -> str:
+        """Identity of the recording behind `song`; its name if the file cannot be read."""
+        try:
+            return self._library.content_key(song)
+        except Exception:
+            return song
+
     def enqueue(self, song: str, owner: str, is_admin: bool = False) -> QueueItem:
+        self._library.resolve(song)  # raises SongNotFound before the queue is touched
+        key = self._key(song)  # hashing a new file can take a moment: not under the lock
         with self._lock:
-            self._library.resolve(song)  # raises SongNotFound before the queue is touched
+            if any(item.song == song or self._key(item.song) == key for item in self._queue.snapshot()):
+                raise DuplicateSong(song)  # waiting already, under this name or as a copy
+            if not is_admin:
+                remaining = self._history.remaining(key)
+                if remaining > 0:
+                    raise RecentlyPlayed(song, remaining)
             return self._queue.add(song, owner, is_admin)
 
     # -- shuffle mode ----------------------------------------------------------
@@ -208,8 +237,21 @@ class PlaybackEngine:
             self._rng.shuffle(bag)
             if len(bag) > 1 and bag[0] == self._last_song:
                 bag.append(bag.pop(0))  # never the same song twice in a row
+        song = bag.pop(self._rested_index(bag))
         shuffle["bag"] = bag
-        return QueueItem(id=uuid4().hex, song=bag.pop(0), owner=shuffle["owner"])
+        return QueueItem(id=uuid4().hex, song=song, owner=shuffle["owner"])
+
+    def _rested_index(self, bag: list[str]) -> int:
+        """Position of the first song in `bag` that did not play recently; when all of
+        them did, of the one that played longest ago (the first, if several tie)."""
+        best, best_remaining = 0, None
+        for index, song in enumerate(bag):  # one song at a time: knowing a song's key means reading it
+            remaining = self._history.remaining(self._key(song))
+            if remaining == 0:
+                return index
+            if best_remaining is None or remaining < best_remaining:
+                best, best_remaining = index, remaining
+        return best
 
     def remove(self, item_id: str, requester: str, is_admin: bool = False) -> None:
         with self._lock:

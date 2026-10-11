@@ -1,5 +1,6 @@
 import io
 import json
+import shutil
 
 import pytest
 
@@ -472,3 +473,68 @@ def test_random_songs_do_not_use_up_the_cap(app, player, phone_a, sections):
     assert phone_a.get("/api/state").json["me"]["pending"] == 0
     for name in ("a1", "a2", "a3", "b1", "s0"):
         assert post(phone_a, "/api/queue", {"song": f"{name}.wav"}).status_code == 201
+
+
+# -- no repeated songs ---------------------------------------------------------------------
+
+
+def test_a_song_that_just_played_is_refused_with_the_time_left(app, phone_a, phone_b, songs):
+    post(phone_a, "/api/queue", {"song": "a1.wav"})
+    app.extensions["engine"].tick()  # a1 starts
+    r = post(phone_b, "/api/queue", {"song": "a1.wav"})
+    assert (r.status_code, r.json["code"]) == (409, "recently_played")
+    assert 7190 < r.json["remaining_seconds"] <= 7200  # the 2 hour default
+    assert "120 minutos" in r.json["error"]
+
+
+def test_the_time_left_is_rounded_up_and_says_minuto_when_it_is_one(config, player, songs):
+    import dataclasses
+
+    from caseta import create_app
+
+    app = create_app(dataclasses.replace(config, replay_block_minutes=1), player=player, start_engine=False)
+    phone = app.test_client()
+    post(phone, "/api/queue", {"song": "a1.wav"})
+    app.extensions["engine"].tick()
+    r = post(phone, "/api/queue", {"song": "a1.wav"})
+    assert (r.status_code, r.json["code"]) == (409, "recently_played")
+    assert "1 minuto." in r.json["error"]
+
+
+def test_the_admin_can_add_a_song_that_just_played(app, phone_a, songs):
+    login(phone_a)
+    post(phone_a, "/api/queue", {"song": "a1.wav"})
+    app.extensions["engine"].tick()
+    assert post(phone_a, "/api/queue", {"song": "a1.wav"}).status_code == 201
+
+
+def test_a_copy_of_a_waiting_song_is_refused_as_a_duplicate(phone_a, phone_b, songs):
+    shutil.copy(songs / "a1.wav", songs / "a1-copy.wav")
+    post(phone_a, "/api/queue", {"song": "a1.wav"})
+    r = post(phone_b, "/api/queue", {"song": "a1-copy.wav"})
+    assert (r.status_code, r.json["code"]) == (409, "duplicate")
+
+
+def test_uploading_a_song_the_library_already_has_keeps_a_single_copy(phone_a, songs):
+    data = (songs / "a1.wav").read_bytes()
+    r = phone_a.post("/api/upload", data={"song": (io.BytesIO(data), "mine.wav"), "enqueue": "1"})
+    assert r.status_code == 201
+    assert r.json["song"] == "a1.wav"
+    assert r.json["existing"] is True
+    assert r.json["item"]["song"] == "a1.wav"
+    assert "Subidas/mine.wav" not in phone_a.get("/api/songs").json
+    assert list((songs / "Subidas").glob("*")) == []
+
+
+def test_uploading_a_new_song_is_not_reported_as_existing(phone_a):
+    r = phone_a.post("/api/upload", data={"song": (io.BytesIO(b"fresh"), "n.mp3")})
+    assert (r.status_code, r.json["existing"]) == (201, False)
+
+
+def test_uploading_a_song_that_just_played_is_refused_and_names_the_library_copy(app, phone_a, phone_b, songs):
+    post(phone_a, "/api/queue", {"song": "a1.wav"})
+    app.extensions["engine"].tick()
+    data = (songs / "a1.wav").read_bytes()
+    r = phone_b.post("/api/upload", data={"song": (io.BytesIO(data), "mine.wav"), "enqueue": "1"})
+    assert (r.status_code, r.json["code"]) == (409, "recently_played")
+    assert r.json["song"] == "a1.wav"

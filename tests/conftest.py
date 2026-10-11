@@ -1,4 +1,5 @@
 import dataclasses
+import hashlib
 import wave
 from pathlib import Path
 
@@ -9,15 +10,21 @@ from caseta.library import Library
 
 
 def make_wav(path: Path, seconds: float) -> Path:
-    """Write a silent mono 8 kHz 16-bit WAV of the given length, creating parent dirs."""
+    """Write a mono 8 kHz 16-bit WAV of the given length, creating parent dirs.
+
+    The content depends on the path, so two songs made this way are different
+    recordings (as real songs are). A test that needs the same recording twice
+    copies the file."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     rate = 8000
+    size = 2 * int(rate * seconds)
+    fingerprint = hashlib.blake2b(str(path).encode(), digest_size=16).digest()
     with wave.open(str(path), "wb") as w:
         w.setnchannels(1)
         w.setsampwidth(2)
         w.setframerate(rate)
-        w.writeframes(b"\x00\x00" * int(rate * seconds))
+        w.writeframes((fingerprint + bytes(size))[:size])  # silence after a path-specific start
     return path
 
 
