@@ -363,6 +363,9 @@
       function () { volumeBusy = false; },
       function (err) {
         volumeBusy = false;
+        // The state GET below fails too when the server is down, so put the
+        // slider back on the last known server value now (no-op before any state).
+        renderVolume(lastState);
         handleActionError(err);
       }
     ).then(function () {
