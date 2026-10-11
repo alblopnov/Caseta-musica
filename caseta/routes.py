@@ -1,13 +1,12 @@
 """HTTP API for the shared song queue. Every API error is ``{"error", "code"}`` JSON."""
 from __future__ import annotations
 
-import math
 import re
 
 from flask import Blueprint, current_app, g, jsonify, render_template, request
 from werkzeug.exceptions import HTTPException
 
-from caseta.engine import EmptyCategory, RecentlyPlayed, ShuffleLocked
+from caseta.engine import EmptyCategory, ShuffleLocked
 from caseta.song_queue import DuplicateSong, NotOwner, QueueFull, UnknownItem
 from caseta.identity import is_admin, set_admin
 from caseta.library import InvalidUpload, SongNotFound
@@ -46,15 +45,6 @@ def _domain_error(exc: Exception) -> ApiError | None:
         )
     if isinstance(exc, DuplicateSong):
         return ApiError(409, "duplicate", "Esa canción ya está en la cola.")
-    if isinstance(exc, RecentlyPlayed):
-        minutes = max(1, math.ceil(exc.remaining_seconds / 60))
-        unit = "minuto" if minutes == 1 else "minutos"
-        return ApiError(
-            409,
-            "recently_played",
-            f"Esa canción sonó hace poco. Podrás pedirla de nuevo en {minutes} {unit}.",
-            remaining_seconds=math.ceil(exc.remaining_seconds),
-        )
     if isinstance(exc, QueueFull):
         cap = current_app.extensions["config"].max_pending_per_user
         return ApiError(409, "full", f"Ya tienes {cap} canciones en la cola. Espera a que suene alguna.")
@@ -75,10 +65,7 @@ def _register_domain_handlers(app) -> None:
         err = _domain_error(exc)
         return error_response(err.status, err.code, err.message, **err.extra)
 
-    for cls in (
-        SongNotFound, UnknownItem, EmptyCategory, ShuffleLocked, DuplicateSong, RecentlyPlayed,
-        QueueFull, NotOwner, InvalidUpload,
-    ):
+    for cls in (SongNotFound, UnknownItem, EmptyCategory, ShuffleLocked, DuplicateSong, QueueFull, NotOwner, InvalidUpload):
         app.register_error_handler(cls, handler)
 
 
@@ -206,9 +193,9 @@ def upload():
     if request.form.get("enqueue", "").strip().lower() in _TRUTHY:
         try:
             item = _engine().enqueue(song, g.client_id, is_admin())
-        except (QueueFull, DuplicateSong, RecentlyPlayed) as e:
+        except (QueueFull, DuplicateSong) as e:
             err = _domain_error(e)  # the song stays in the library; tell the client which one
-            return error_response(err.status, err.code, err.message, song=song, **err.extra)
+            return error_response(err.status, err.code, err.message, song=song)
     return jsonify({"song": song, "item": _item_json(item) if item else None, "existing": existing}), 201
 
 

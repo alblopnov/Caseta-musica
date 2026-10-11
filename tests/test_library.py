@@ -270,20 +270,6 @@ def test_find_identical_never_answers_with_the_song_itself(library, config):
     assert library.find_identical("a.wav") is None
 
 
-def test_from_env_reads_the_replay_block_in_minutes():
-    assert Config.from_env({"CASETA_REPLAY_BLOCK_MINUTES": "45"}).replay_block_minutes == 45
-
-
-def test_from_env_accepts_zero_to_turn_the_replay_block_off():
-    assert Config.from_env({"CASETA_REPLAY_BLOCK_MINUTES": "0"}).replay_block_minutes == 0
-
-
-@pytest.mark.parametrize("bad", ["-1", "soon", "1.5"])
-def test_from_env_rejects_an_invalid_replay_block(bad):
-    with pytest.raises(ValueError, match="CASETA_REPLAY_BLOCK_MINUTES"):
-        Config.from_env({"CASETA_REPLAY_BLOCK_MINUTES": bad})
-
-
 def test_drop_if_duplicate_removes_the_new_copy_and_names_the_old_one(library, config):
     make_wav(config.song_folder / "Flamenquito" / "x.wav", 1)
     _copy_song(config, "Flamenquito/x.wav", "Subidas/x.wav")
