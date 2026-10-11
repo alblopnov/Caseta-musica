@@ -62,6 +62,20 @@ var UserLogic = (function () {
     return "No se pudo completar la acción.";
   }
 
+  // What to tell the user after POST /api/upload succeeds, and which section to show.
+  // `existing` means the library already had that recording, so no new file was kept.
+  function uploadOutcome(result, uploadCategory) {
+    if (result && result.existing) {
+      var parts = String(result.song || "").split("/");
+      return {
+        message: "Esa canción ya estaba en la biblioteca",
+        kind: "info",
+        category: parts.length > 1 ? parts[0] : "Todas",
+      };
+    }
+    return { message: "Canción subida", kind: "success", category: uploadCategory };
+  }
+
   function counterText(state) {
     if (!state || !state.me) return "";
     var pending = Number(state.me.pending) || 0;
@@ -206,6 +220,7 @@ var UserLogic = (function () {
     isInQueue: isInQueue,
     songState: songState,
     conflictMessage: conflictMessage,
+    uploadOutcome: uploadOutcome,
     counterText: counterText,
     shuffleControl: shuffleControl,
     shuffleStatus: shuffleStatus,

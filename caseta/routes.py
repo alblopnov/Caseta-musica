@@ -176,6 +176,17 @@ def skip():
     return jsonify({"status": "skipped"})
 
 
+@bp.post("/api/volume")
+def set_volume():
+    require_admin()
+    volume = json_object().get("volume")
+    # the engine and pygame trust this check: pygame ignores negative levels and only clamps above 1.0
+    if not isinstance(volume, int) or isinstance(volume, bool) or not 0 <= volume <= 100:
+        raise ApiError(400, "bad_request", "El volumen debe ser un número entero de 0 a 100.")
+    _engine().set_volume(volume)
+    return jsonify({"volume": volume})
+
+
 # -- upload -------------------------------------------------------------------------
 
 
@@ -185,14 +196,18 @@ def upload():
     if file is None or not file.filename:
         raise ApiError(400, "bad_request", "Elige un archivo de audio.")
     song = _library().save_upload(file)  # InvalidUpload -> 400 via the domain handler
+    original = _library().drop_if_duplicate(song)  # the library already had this recording
+    existing = original is not None
+    if existing:
+        song = original
     item = None
     if request.form.get("enqueue", "").strip().lower() in _TRUTHY:
         try:
             item = _engine().enqueue(song, g.client_id, is_admin())
         except (QueueFull, DuplicateSong) as e:
-            err = _domain_error(e)  # the file stays saved; tell the client where
+            err = _domain_error(e)  # the song stays in the library; tell the client which one
             return error_response(err.status, err.code, err.message, song=song)
-    return jsonify({"song": song, "item": _item_json(item) if item else None}), 201
+    return jsonify({"song": song, "item": _item_json(item) if item else None, "existing": existing}), 201
 
 
 # -- admin --------------------------------------------------------------------------

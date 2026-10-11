@@ -1,8 +1,10 @@
 """The song library: safe path resolution, listing, uploads and durations."""
 from __future__ import annotations
 
+import hashlib
 import secrets
 import shutil
+import threading
 from pathlib import Path, PurePosixPath
 
 import mutagen
@@ -12,6 +14,16 @@ from caseta.config import Config
 
 FALLBACK_DURATION = 180.0
 MAX_STEM_LENGTH = 100
+HASH_CHUNK = 1024 * 1024
+
+
+def hash_file(path: Path) -> str:
+    """Content hash of a file: equal exactly when the bytes are equal."""
+    digest = hashlib.blake2b(digest_size=16)
+    with open(path, "rb") as f:
+        while chunk := f.read(HASH_CHUNK):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 class SongNotFound(Exception):
@@ -26,6 +38,8 @@ class Library:
     def __init__(self, config: Config):
         self._config = config
         self._durations: dict[Path, float] = {}
+        self._keys: dict[Path, tuple[int, int, str]] = {}  # path -> (size, mtime_ns, key)
+        self._dedupe_lock = threading.Lock()
 
     @property
     def _root(self) -> Path:
@@ -91,6 +105,47 @@ class Library:
             target.unlink(missing_ok=True)  # never leave a truncated song behind
             raise
         return f"{self._config.upload_category}/{name}"
+
+    def content_key(self, song: str) -> str:
+        """Identity of the recording: equal for byte-identical files wherever they are.
+
+        Hashed once per file and remembered until its size or modification time changes."""
+        return self._key_of(self.resolve(song))
+
+    def _key_of(self, path: Path) -> str:
+        stat = path.stat()
+        cached = self._keys.get(path)
+        if cached is not None and cached[:2] == (stat.st_size, stat.st_mtime_ns):
+            return cached[2]
+        key = hash_file(path)
+        self._keys[path] = (stat.st_size, stat.st_mtime_ns, key)
+        return key
+
+    def find_identical(self, song: str) -> str | None:
+        """Another song in the library with exactly the same content, or None.
+
+        Only files of the same size are hashed, so the rest of the library is not read."""
+        path = self.resolve(song)
+        size = path.stat().st_size
+        key = self._key_of(path)
+        for other in self.list_songs():
+            candidate = self.resolve(other)
+            if candidate == path or candidate.stat().st_size != size:
+                continue
+            if self._key_of(candidate) == key:
+                return other
+        return None
+
+    def drop_if_duplicate(self, song: str) -> str | None:
+        """Delete `song` if the library already holds the same recording; name that one.
+
+        None (and the file stays) when nothing else matches. Serialized, so two
+        identical uploads at the same moment cannot each delete themselves."""
+        with self._dedupe_lock:
+            other = self.find_identical(song)
+            if other is not None:
+                self.resolve(song).unlink()
+            return other
 
     def duration(self, song: str) -> float:
         try:

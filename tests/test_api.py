@@ -1,7 +1,11 @@
+import dataclasses
 import io
 import json
+import shutil
 
 import pytest
+
+from caseta import create_app
 
 
 def post(c, url, body):
@@ -265,10 +269,17 @@ def test_songs_lists_library(phone_a, songs):
 
 def test_state_shape_and_unknown_route_json(phone_a):
     s = phone_a.get("/api/state").json
-    assert set(s) == {"now_playing", "queue", "total_seconds", "me", "audio_ok", "shuffle"}
+    assert set(s) == {"now_playing", "queue", "total_seconds", "me", "audio_ok", "shuffle", "volume"}
     assert phone_a.get("/api/nope").json["error"]
     r = phone_a.get("/api/nope")
     assert (r.status_code, r.json["code"]) == (404, "not_found")
+
+
+def test_the_state_reports_the_configured_starting_volume(config, player):
+    cfg = dataclasses.replace(config, volume_percent=30)
+    client = create_app(cfg, player=player, start_engine=False).test_client()
+    assert client.get("/api/state").json["volume"] == 30
+    assert player.volume == 0.3
 
 
 def test_method_not_allowed_is_json(phone_a):
@@ -472,3 +483,90 @@ def test_random_songs_do_not_use_up_the_cap(app, player, phone_a, sections):
     assert phone_a.get("/api/state").json["me"]["pending"] == 0
     for name in ("a1", "a2", "a3", "b1", "s0"):
         assert post(phone_a, "/api/queue", {"song": f"{name}.wav"}).status_code == 201
+
+
+# -- no repeated songs ---------------------------------------------------------------------
+
+
+def test_a_copy_of_a_waiting_song_is_refused_as_a_duplicate(phone_a, phone_b, songs):
+    shutil.copy(songs / "a1.wav", songs / "a1-copy.wav")
+    post(phone_a, "/api/queue", {"song": "a1.wav"})
+    r = post(phone_b, "/api/queue", {"song": "a1-copy.wav"})
+    assert (r.status_code, r.json["code"]) == (409, "duplicate")
+
+
+def test_uploading_a_song_the_library_already_has_keeps_a_single_copy(phone_a, songs):
+    data = (songs / "a1.wav").read_bytes()
+    r = phone_a.post("/api/upload", data={"song": (io.BytesIO(data), "mine.wav"), "enqueue": "1"})
+    assert r.status_code == 201
+    assert r.json["song"] == "a1.wav"
+    assert r.json["existing"] is True
+    assert r.json["item"]["song"] == "a1.wav"
+    assert "Subidas/mine.wav" not in phone_a.get("/api/songs").json
+    assert list((songs / "Subidas").glob("*")) == []
+
+
+def test_uploading_a_new_song_is_not_reported_as_existing(phone_a):
+    r = phone_a.post("/api/upload", data={"song": (io.BytesIO(b"fresh"), "n.mp3")})
+    assert (r.status_code, r.json["existing"]) == (201, False)
+
+
+def test_a_song_that_already_played_can_be_queued_again(app, phone_a, phone_b, player, songs):
+    post(phone_a, "/api/queue", {"song": "a1.wav"})
+    app.extensions["engine"].tick()  # a1 is playing: it is no longer waiting
+    assert post(phone_b, "/api/queue", {"song": "a1.wav"}).status_code == 201
+    player.finish()
+    app.extensions["engine"].tick()  # the second a1 plays
+    assert post(phone_a, "/api/queue", {"song": "a1.wav"}).status_code == 201
+    assert [p.name for p in player.played] == ["a1.wav", "a1.wav"]
+
+
+# -- volume ---------------------------------------------------------------------------
+
+
+def test_admin_sets_the_volume_and_every_phone_sees_it(phone_a, phone_b, player):
+    login(phone_a)
+    r = post(phone_a, "/api/volume", {"volume": 35})
+    assert (r.status_code, r.json) == (200, {"volume": 35})
+    assert phone_b.get("/api/state").json["volume"] == 35
+    assert player.volume == 0.35
+
+
+def test_only_the_admin_can_set_the_volume(phone_a, player):
+    r = post(phone_a, "/api/volume", {"volume": 10})
+    assert (r.status_code, r.json["code"]) == (401, "unauthorized")
+    assert phone_a.get("/api/state").json["volume"] == 100 and player.volume == 1.0
+
+
+@pytest.mark.parametrize("bad", [-1, 101, 50.5, "50", None, True, [50]])
+def test_a_volume_that_is_not_an_integer_from_0_to_100_is_refused(phone_a, player, bad):
+    login(phone_a)
+    r = post(phone_a, "/api/volume", {"volume": bad})
+    assert (r.status_code, r.json["code"]) == (400, "bad_request")
+    assert phone_a.get("/api/state").json["volume"] == 100 and player.volume == 1.0
+
+
+@pytest.mark.parametrize("body", [{}, {"loudness": 5}])
+def test_a_volume_request_without_the_volume_is_refused(phone_a, body):
+    login(phone_a)
+    assert post(phone_a, "/api/volume", body).status_code == 400
+
+
+def test_a_volume_request_that_is_not_json_is_refused(phone_a):
+    login(phone_a)
+    r = phone_a.post("/api/volume", data="loud", content_type="text/plain")
+    assert (r.status_code, r.json["code"]) == (400, "bad_request")
+
+
+@pytest.mark.parametrize("edge", [0, 100])
+def test_the_limits_are_accepted(phone_a, edge):
+    login(phone_a)
+    assert post(phone_a, "/api/volume", {"volume": edge}).json == {"volume": edge}
+
+
+def test_volume_zero_does_not_stop_the_songs(app, phone_a, player, songs):
+    login(phone_a)
+    post(phone_a, "/api/volume", {"volume": 0})
+    post(phone_a, "/api/queue", {"song": "a1.wav"})
+    app.extensions["engine"].tick()
+    assert player.volume == 0.0 and len(player.played) == 1

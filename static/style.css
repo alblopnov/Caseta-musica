@@ -438,6 +438,14 @@ input[type="file"]::file-selector-button {
 .panel-queue .meta:last-child { margin-top: 0.7rem; padding-inline: 0.4rem; }
 #queue-counter { padding-inline: 0.4rem; }
 
+/* Admin volume slider, between the player and the queue. */
+.volume-panel { margin-top: 1rem; padding: 0.9rem 0.9rem 1rem; }
+/* ".panel + .panel" would open a wider gap above the queue panel. */
+.volume-panel + .panel-queue { margin-top: 1rem; }
+.volume-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.8rem; padding-inline: 0.4rem; }
+.volume-head .field-label { margin-bottom: 0; }
+.volume-slider { display: block; width: 100%; min-height: 2rem; margin-top: 0.4rem; accent-color: var(--red); }
+
 .queue-list { display: grid; gap: 0.15rem; margin-top: 0.4rem; }
 
 .q-row {

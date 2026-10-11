@@ -197,9 +197,9 @@
 
   // -- upload ----------------------------------------------------------------
 
-  function finishUpload() {
+  function finishUpload(category) {
     uploadInput.value = "";
-    panel.showCategory(UPLOAD_CATEGORY);
+    panel.showCategory(category || UPLOAD_CATEGORY);
     return Promise.all([panel.load(), refreshState()]).catch(function () {});
   }
 
@@ -215,9 +215,10 @@
     uploadBtn.disabled = true;
     uploadBtn.textContent = "Subiendo…";
     Common.api("POST", "/api/upload", form).then(
-      function () {
-        Common.toast("Canción subida", "success");
-        return finishUpload();
+      function (result) {
+        var outcome = UserLogic.uploadOutcome(result, UPLOAD_CATEGORY);
+        Common.toast(outcome.message, outcome.kind);
+        return finishUpload(outcome.category);
       },
       function (err) {
         handleActionError(err);
